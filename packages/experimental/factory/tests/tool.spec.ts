@@ -1,0 +1,199 @@
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import type { Context } from '@deepseek-ai/cordis'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import * as factory from '../src/index.ts'
+import { GOAL_FILE_NAME, SPAWN_RECORD_NAME } from '../src/spawn.ts'
+
+const run = promisify(execFile)
+
+const GOAL = '# Mutation goal\n\nBecome a synth plugin suite.\n'
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  return run('git', args, { cwd }).then(({ stdout }) => stdout.trim())
+}
+
+interface SetupResult {
+  ctx: Context
+  section: ReturnType<typeof vi.fn>
+  getSectionOrder: ReturnType<typeof vi.fn>
+  register: ReturnType<typeof vi.fn>
+}
+
+function setup(config: factory.Config = {}): SetupResult {
+  const section = vi.fn()
+  const getSectionOrder = vi.fn(() => 2650)
+  const register = vi.fn()
+  const ctx = {
+    systemPrompt: { section, getSectionOrder },
+    tools: { register },
+  } as unknown as Context
+  factory.apply(ctx, config)
+  return { ctx, section, getSectionOrder, register }
+}
+
+function tool() {
+  const { register } = setup()
+  expect(register).toHaveBeenCalledTimes(1)
+  return register.mock.calls[0][0] as {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+    output: { schema: unknown; render: (args: unknown, value: unknown) => unknown }
+    execute: (args: unknown, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+  }
+}
+
+function exec(): { signal: AbortSignal } {
+  return { signal: new AbortController().signal } as never
+}
+
+let workspace: string
+let mother: string
+
+beforeAll(async () => {
+  workspace = await mkdtemp(join(tmpdir(), 'dsh-factory-tool-'))
+  mother = join(workspace, 'mother')
+  await mkdir(mother, { recursive: true })
+  await git(mother, ['init'])
+  await git(mother, ['config', 'user.name', 'Fixture'])
+  await git(mother, ['config', 'user.email', 'fixture@example.test'])
+  await writeFile(join(mother, 'README.md'), 'mother\n')
+  await git(mother, ['add', '-A'])
+  await git(mother, ['commit', '-m', 'fixture root'])
+})
+
+afterAll(async () => {
+  await rm(workspace, { recursive: true, force: true })
+})
+
+describe('resolveConfig', () => {
+  it('defaults to the process working directory', () => {
+    expect(factory.resolveConfig({})).toEqual({ repositoryPath: process.cwd() })
+  })
+
+  it('trims a configured repository path', () => {
+    expect(factory.resolveConfig({ repositoryPath: `  ${mother}  ` })).toEqual({ repositoryPath: mother })
+  })
+
+  it('refuses an empty repository path', () => {
+    expect(() => factory.resolveConfig({ repositoryPath: '   ' })).toThrow('must not be empty')
+  })
+})
+
+describe('parseArgs', () => {
+  it('passes through valid arguments', () => {
+    expect(factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone' })).toEqual({
+      goalMarkdown: GOAL,
+      targetPath: '/tmp/clone',
+      referencePaths: undefined,
+    })
+    expect(factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', referencePaths: ['a'] })).toEqual({
+      goalMarkdown: GOAL,
+      targetPath: '/tmp/clone',
+      referencePaths: ['a'],
+    })
+  })
+
+  it('rejects non-object arguments', () => {
+    expect(() => factory.parseArgs(null)).toThrow('must be an object')
+    expect(() => factory.parseArgs('nope')).toThrow('must be an object')
+    expect(() => factory.parseArgs([])).toThrow('must be an object')
+  })
+
+  it('rejects an empty goal and an empty target path', () => {
+    expect(() => factory.parseArgs({ goalMarkdown: '   ', targetPath: '/tmp/clone' })).toThrow('non-empty goalMarkdown')
+    expect(() => factory.parseArgs({ goalMarkdown: GOAL, targetPath: '  ' })).toThrow('non-empty targetPath')
+  })
+
+  it('rejects non-string reference entries', () => {
+    expect(() => factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', referencePaths: [42] }))
+      .toThrow('array of strings')
+  })
+})
+
+describe('apply', () => {
+  it('registers the explicit-ask policy section and the tool', () => {
+    const { section, getSectionOrder, register } = setup({ repositoryPath: mother })
+    expect(getSectionOrder).toHaveBeenCalledWith('TOOL_SPAWN')
+    expect(section).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'tool:spawn',
+      order: 2650,
+      text: expect.stringContaining('ONLY when the human explicitly asks'),
+    }))
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(tool().name).toBe('spawn_and_mutate')
+    expect(tool().description).toContain('mutation goal')
+  })
+})
+
+describe('spawn_and_mutate execute', () => {
+  it('spawns a clone from the configured mother and reports the record', async () => {
+    const { register } = setup({ repositoryPath: mother })
+    const spawn = register.mock.calls[0][0] as ReturnType<typeof tool>
+    const target = join(workspace, 'tool-clone')
+    const result = await spawn.execute({ goalMarkdown: GOAL, targetPath: target }, exec())
+    const head = await git(mother, ['rev-parse', 'HEAD'])
+    expect(result).toEqual({
+      clonePath: target,
+      sourceCommit: head,
+      port: expect.any(Number),
+      homePath: '.mutation-home',
+      goalSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    })
+    await expect(readFile(join(target, GOAL_FILE_NAME), 'utf8')).resolves.toContain('synth plugin suite')
+    const stored = JSON.parse(await readFile(join(target, SPAWN_RECORD_NAME), 'utf8') as string)
+    expect(stored.sourceCommit).toBe(head)
+  })
+
+  it('forwards reference paths to the clone', async () => {
+    const reference = join(workspace, 'sketch.png')
+    await writeFile(reference, 'png bytes')
+    const { register } = setup({ repositoryPath: mother })
+    const spawn = register.mock.calls[0][0] as ReturnType<typeof tool>
+    const target = join(workspace, 'tool-clone-refs')
+    await spawn.execute({ goalMarkdown: GOAL, targetPath: target, referencePaths: [reference] }, exec())
+    await expect(readFile(join(target, 'references', 'sketch.png'), 'utf8')).resolves.toBe('png bytes')
+  })
+
+  it('renders the result as a single text block', () => {
+    const spawn = tool()
+    const blocks = spawn.output.render({}, {
+      clonePath: '/tmp/clone',
+      sourceCommit: 'a'.repeat(40),
+      port: 4123,
+      homePath: '.mutation-home',
+      goalSha256: 'b'.repeat(64),
+    }) as Array<{ type: string; text: string }>
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].type).toBe('text')
+    expect(blocks[0].text).toContain('Clone spawned at /tmp/clone')
+    expect(blocks[0].text).toContain('MUTATION_GOAL.md')
+  })
+
+  it('rejects non-object arguments', async () => {
+    const spawn = tool()
+    await expect(spawn.execute(null, exec())).rejects.toThrow('must be an object')
+    await expect(spawn.execute('nope', exec())).rejects.toThrow('must be an object')
+    await expect(spawn.execute([], exec())).rejects.toThrow('must be an object')
+  })
+
+  it('rejects an empty goal and an empty target path', async () => {
+    const spawn = tool()
+    await expect(spawn.execute({ goalMarkdown: '   ', targetPath: join(workspace, 'c1') }, exec()))
+      .rejects.toThrow('non-empty goalMarkdown')
+    await expect(spawn.execute({ goalMarkdown: GOAL, targetPath: '  ' }, exec()))
+      .rejects.toThrow('non-empty targetPath')
+  })
+
+  it('rejects malformed reference paths', async () => {
+    const spawn = tool()
+    await expect(spawn.execute({ goalMarkdown: GOAL, targetPath: join(workspace, 'c2'), referencePaths: 'x' }, exec()))
+      .rejects.toThrow('must be an array')
+    await expect(spawn.execute({ goalMarkdown: GOAL, targetPath: join(workspace, 'c2'), referencePaths: [42] }, exec()))
+      .rejects.toThrow('array of strings')
+  })
+})
