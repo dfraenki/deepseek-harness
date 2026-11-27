@@ -1,4 +1,4 @@
-# DeepSeek Harness Architecture
+# Artifork Architecture
 
 English | [中文](architecture.zh.md)
 
