@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { access, appendFile, constants, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, appendFile, constants, cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -22,6 +22,15 @@ export const SPAWN_RECORD_NAME = 'MUTATION_SPAWN.json'
 
 /** Clone-local home directory for state, sessions, and credentials. */
 export const MUTATION_HOME_NAME = '.mutation-home'
+
+/** Checkout-local home directory for rehearsal records and distilled skill candidates. */
+export const REHEARSAL_HOME_NAME = '.rehearsal-home'
+
+/** Rehearsal-home-relative directory of distilled skill candidates. */
+export const REHEARSAL_SKILLS_DIR_NAME = join(REHEARSAL_HOME_NAME, 'skills')
+
+/** Clone-relative directory the harness loads skills from. */
+const CLONE_SKILLS_DIR = join('.agents', 'skills')
 
 /** Baseline commit message of every spawned clone. */
 export const BASELINE_COMMIT_MESSAGE = 'Spawn mutation baseline'
@@ -170,11 +179,47 @@ export async function writeSpawnRecord(clonePath: string, record: SpawnRecord, s
 }
 
 /**
- * Spawn one isolated clone: clean-checkout proof, `git clone --no-hardlinks`,
- * remote cut, isolation facts, goal and references, and the baseline commit.
- * Every write lands inside the clone; the mother is only read.
+ * Copy distilled rehearsal skill candidates into the clone's skills directory,
+ * one directory per frontmatter name; unreadable or nameless files are skipped.
  */
-export async function spawnClone(options: SpawnOptions): Promise<SpawnRecord> {
+export async function copyRehearsalSkills(
+  repositoryPath: string,
+  clonePath: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const dir = join(repositoryPath, REHEARSAL_SKILLS_DIR_NAME)
+  const entries = await readdir(dir).catch((error: unknown): string[] => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  })
+  const copied: string[] = []
+  for (const entry of entries.filter(name => name.endsWith('.md')).sort()) {
+    const raw = await readFile(join(dir, entry), { encoding: 'utf8', signal }).catch(() => null)
+    const match = raw === null ? null : /^name: (.+)$/m.exec(raw)
+    const name = match?.[1]?.trim()
+    if (name === undefined || name.length > 60 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) continue
+    const target = join(clonePath, CLONE_SKILLS_DIR, name)
+    await mkdir(target, { recursive: true })
+    await cp(join(dir, entry), join(target, 'SKILL.md'))
+    copied.push(name)
+  }
+  return copied
+}
+
+/** What one spawn produced: the clone's isolation facts and its rehearsed skills. */
+export interface SpawnOutcome {
+  /** The clone's isolation facts. */
+  readonly record: SpawnRecord
+  /** Skill names carried over from the mother's distilled rehearsal candidates. */
+  readonly rehearsedSkills: readonly string[]
+}
+
+/**
+ * Spawn one isolated clone: clean-checkout proof, `git clone --no-hardlinks`,
+ * remote cut, isolation facts, goal and references, distilled rehearsal skills,
+ * and the baseline commit. Every write lands inside the clone; the mother is only read.
+ */
+export async function spawnClone(options: SpawnOptions): Promise<SpawnOutcome> {
   const { repositoryPath, targetPath, goalMarkdown, signal } = options
   const referencePaths = options.referencePaths ?? []
   const sourceCommit = await requireCleanCheckout(repositoryPath, signal)
@@ -200,6 +245,7 @@ export async function spawnClone(options: SpawnOptions): Promise<SpawnRecord> {
     port,
   }
   await writeSpawnRecord(targetPath, record, signal)
+  const rehearsedSkills = await copyRehearsalSkills(repositoryPath, targetPath, signal)
   await commitAll(targetPath, BASELINE_COMMIT_MESSAGE, signal)
-  return record
+  return { record, rehearsedSkills }
 }

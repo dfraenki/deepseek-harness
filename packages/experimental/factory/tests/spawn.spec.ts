@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -8,9 +8,12 @@ import {
   BASELINE_COMMIT_MESSAGE,
   GOAL_FILE_NAME,
   MUTATION_HOME_NAME,
+  REHEARSAL_HOME_NAME,
   SPAWN_RECORD_NAME,
   commitAll,
+  copyRehearsalSkills,
   errorMessage,
+  excludePathFromGit,
   prepareGoal,
   requireCleanCheckout,
   resolveFreePort,
@@ -157,7 +160,7 @@ describe('spawnClone', () => {
     await writeFile(reference, 'reference brief')
     const motherHead = await git(mother, ['rev-parse', 'HEAD'])
     const target = join(workspace, 'clone-a')
-    const record = await spawnClone({
+    const { record, rehearsedSkills } = await spawnClone({
       repositoryPath: mother,
       targetPath: target,
       goalMarkdown: GOAL,
@@ -168,6 +171,7 @@ describe('spawnClone', () => {
     expect(record.goalSha256).toMatch(/^[0-9a-f]{64}$/)
     expect(record.homePath).toBe(MUTATION_HOME_NAME)
     expect(record.port).toBeGreaterThan(0)
+    expect(rehearsedSkills).toEqual([])
     await expect(readFile(join(target, GOAL_FILE_NAME), 'utf8')).resolves.toContain('electronic-music DAW')
     const stored = JSON.parse(await readFile(join(target, SPAWN_RECORD_NAME), 'utf8') as string)
     expect(stored.sourceCommit).toBe(motherHead)
@@ -199,5 +203,48 @@ describe('spawnClone', () => {
     })).rejects.toThrow('not a clean checkout')
     await rm(target, { recursive: true, force: true })
     await rm(join(mother, 'dirty.txt'))
+  })
+
+  it('carries distilled rehearsal skills into the clone and skips nameless files', async () => {
+    await excludePathFromGit(mother, REHEARSAL_HOME_NAME)
+    const skillsDir = join(mother, REHEARSAL_HOME_NAME, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'engine.md'), '---\nname: dsh-rehearsed-engine\ndescription: Build the engine.\n---\n\n# Engine\n')
+    await writeFile(join(skillsDir, 'broken.md'), 'no frontmatter name here\n')
+    const target = join(workspace, 'clone-skills')
+    const { record: _record, rehearsedSkills } = await spawnClone({
+      repositoryPath: mother,
+      targetPath: target,
+      goalMarkdown: GOAL,
+    })
+    expect(rehearsedSkills).toEqual(['dsh-rehearsed-engine'])
+    await expect(readFile(join(target, '.agents', 'skills', 'dsh-rehearsed-engine', 'SKILL.md'), 'utf8'))
+      .resolves.toContain('name: dsh-rehearsed-engine')
+  })
+})
+
+describe('copyRehearsalSkills', () => {
+  it('copies nothing when the rehearsal home does not exist', async () => {
+    const empty = join(workspace, 'no-rehearsal')
+    await mkdir(empty, { recursive: true })
+    await expect(copyRehearsalSkills(empty, empty)).resolves.toEqual([])
+  })
+
+  it('skips unreadable skill files and fails loud on an unreadable skills directory', async () => {
+    const repo = join(workspace, 'rehearsal-eacces')
+    const skillsDir = join(repo, REHEARSAL_HOME_NAME, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'locked.md'), '---\nname: dsh-locked\ndescription: d\n---\n')
+    await chmod(join(skillsDir, 'locked.md'), 0o000)
+    const target = join(workspace, 'clone-locked')
+    await mkdir(target, { recursive: true })
+    await expect(copyRehearsalSkills(repo, target)).resolves.toEqual([])
+    await chmod(join(skillsDir, 'locked.md'), 0o644)
+    await chmod(skillsDir, 0o000)
+    try {
+      await expect(copyRehearsalSkills(repo, target)).rejects.toThrow()
+    } finally {
+      await chmod(skillsDir, 0o755)
+    }
   })
 })

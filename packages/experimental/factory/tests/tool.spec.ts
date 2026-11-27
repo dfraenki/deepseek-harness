@@ -25,7 +25,7 @@ interface SetupResult {
 
 function setup(config: factory.Config = {}): SetupResult {
   const section = vi.fn()
-  const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_MUTATION_CHECKPOINT' ? 2660 : key === 'TOOL_MUTATION_RUN' ? 2665 : 2650))
+  const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_MUTATION_CHECKPOINT' ? 2660 : key === 'TOOL_MUTATION_RUN' ? 2665 : key === 'TOOL_FACTORY_REHEARSAL' ? 2655 : 2650))
   const register = vi.fn()
   const ctx = {
     systemPrompt: { section, getSectionOrder },
@@ -35,7 +35,10 @@ function setup(config: factory.Config = {}): SetupResult {
   return { ctx, section, getSectionOrder, register }
 }
 
-function tool(name: 'spawn_and_mutate' | 'mutation_checkpoint' | 'mutation_run' = 'spawn_and_mutate', config: factory.Config = {}) {
+function tool(
+  name: 'spawn_and_mutate' | 'mutation_checkpoint' | 'mutation_run' | 'rehearsal_attempt' | 'rehearsal_distill' | 'rehearsal_report' = 'spawn_and_mutate',
+  config: factory.Config = {},
+) {
   const { register } = setup(config)
   const registered = register.mock.calls.map(call => call[0] as { name: string })
   const found = registered.find(tool => tool.name === name)
@@ -115,18 +118,33 @@ describe('parseArgs', () => {
     expect(() => factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', referencePaths: [42] }))
       .toThrow('array of strings')
   })
+
+  it('passes through the rehearsal coverage gate flag and rejects non-boolean values', () => {
+    expect(factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', requireRehearsalCoverage: true }))
+      .toEqual({ goalMarkdown: GOAL, targetPath: '/tmp/clone', requireRehearsalCoverage: true })
+    expect(factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', referencePaths: ['a'], requireRehearsalCoverage: false }))
+      .toEqual({ goalMarkdown: GOAL, targetPath: '/tmp/clone', referencePaths: ['a'], requireRehearsalCoverage: false })
+    expect(() => factory.parseArgs({ goalMarkdown: GOAL, targetPath: '/tmp/clone', requireRehearsalCoverage: 'yes' }))
+      .toThrow('must be a boolean')
+  })
 })
 
 describe('apply', () => {
   it('registers the explicit-ask policy sections and the three tools', () => {
     const { section, getSectionOrder, register } = setup({ repositoryPath: mother })
     expect(getSectionOrder).toHaveBeenCalledWith('TOOL_SPAWN')
+    expect(getSectionOrder).toHaveBeenCalledWith('TOOL_FACTORY_REHEARSAL')
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
       name: 'tool:spawn',
       order: 2650,
       text: expect.stringContaining('ONLY when the human explicitly asks'),
     }))
-    expect(section).toHaveBeenCalledTimes(3)
+    expect(section).toHaveBeenCalledTimes(4)
+    expect(section).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'rehearsal:policy',
+      order: 2655,
+      text: expect.stringContaining('Rehearse before you spawn'),
+    }))
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
       name: 'tool:mutation-checkpoint',
       order: 2660,
@@ -137,11 +155,14 @@ describe('apply', () => {
       order: 2665,
       text: expect.stringContaining('Never use it outside a spawned clone'),
     }))
-    expect(register).toHaveBeenCalledTimes(3)
+    expect(register).toHaveBeenCalledTimes(6)
     expect(tool('spawn_and_mutate').name).toBe('spawn_and_mutate')
     expect(tool('spawn_and_mutate').description).toContain('mutation goal')
     expect(tool('mutation_checkpoint').description).toContain('roll back on the third consecutive failure')
     expect(tool('mutation_run').description).toContain('until the goal reports complete')
+    expect(tool('rehearsal_attempt').description).toContain('per-topic budget and strike rule')
+    expect(tool('rehearsal_distill').description).toContain('ships into every spawned clone')
+    expect(tool('rehearsal_report').description).toContain('stuck topics')
   })
 })
 
@@ -163,7 +184,7 @@ describe('parseRunArgs', () => {
 
 describe('spawn_and_mutate execute', () => {
   it('spawns a clone from the configured mother and reports the record', async () => {
-    const { register } = setup({ repositoryPath: mother })
+    setup({ repositoryPath: mother })
     const spawn = tool('spawn_and_mutate', { repositoryPath: mother })
     const target = join(workspace, 'tool-clone')
     const result = await spawn.execute({ goalMarkdown: GOAL, targetPath: target }, exec())
@@ -174,6 +195,7 @@ describe('spawn_and_mutate execute', () => {
       port: expect.any(Number),
       homePath: '.mutation-home',
       goalSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      rehearsedSkills: [],
     })
     await expect(readFile(join(target, GOAL_FILE_NAME), 'utf8')).resolves.toContain('synth plugin suite')
     const stored = JSON.parse(await readFile(join(target, SPAWN_RECORD_NAME), 'utf8') as string)
@@ -183,7 +205,7 @@ describe('spawn_and_mutate execute', () => {
   it('forwards reference paths to the clone', async () => {
     const reference = join(workspace, 'sketch.png')
     await writeFile(reference, 'png bytes')
-    const { register } = setup({ repositoryPath: mother })
+    setup({ repositoryPath: mother })
     const spawn = tool('spawn_and_mutate', { repositoryPath: mother })
     const target = join(workspace, 'tool-clone-refs')
     await spawn.execute({ goalMarkdown: GOAL, targetPath: target, referencePaths: [reference] }, exec())
@@ -198,11 +220,21 @@ describe('spawn_and_mutate execute', () => {
       port: 4123,
       homePath: '.mutation-home',
       goalSha256: 'b'.repeat(64),
+      rehearsedSkills: [],
     }) as Array<{ type: string; text: string }>
     expect(blocks).toHaveLength(1)
     expect(blocks[0].type).toBe('text')
     expect(blocks[0].text).toContain('Clone spawned at /tmp/clone')
     expect(blocks[0].text).toContain('MUTATION_GOAL.md')
+    const withSkills = spawn.output.render({}, {
+      clonePath: '/tmp/clone',
+      sourceCommit: 'a'.repeat(40),
+      port: 4123,
+      homePath: '.mutation-home',
+      goalSha256: 'b'.repeat(64),
+      rehearsedSkills: ['dsh-rehearsed-synth'],
+    }) as Array<{ type: string; text: string }>
+    expect(withSkills[0].text).toContain('dsh-rehearsed-synth')
   })
 
   it('rejects non-object arguments', async () => {
@@ -290,5 +322,137 @@ describe('spawn_and_mutate execute', () => {
       .rejects.toThrow('must be an array')
     await expect(spawn.execute({ goalMarkdown: GOAL, targetPath: join(workspace, 'c2'), referencePaths: [42] }, exec()))
       .rejects.toThrow('array of strings')
+  })
+})
+
+describe('rehearsal tools', () => {
+  it('parses attempt and distill arguments', () => {
+    expect(factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 'h', gates: ['true'], milestone: 2 }))
+      .toEqual({ topic: 'synth', approach: 'a', hypothesis: 'h', milestone: 2, gates: ['true'] })
+    expect(factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 'h', gates: ['true'] }))
+      .toEqual({ topic: 'synth', approach: 'a', hypothesis: 'h', gates: ['true'] })
+    expect(() => factory.parseAttemptArgs(null)).toThrow('must be an object')
+    expect(() => factory.parseAttemptArgs('nope')).toThrow('must be an object')
+    expect(() => factory.parseAttemptArgs({ topic: 1, approach: 'a', hypothesis: 'h', gates: [] })).toThrow('requires a topic string')
+    expect(() => factory.parseAttemptArgs({ topic: 'synth', approach: 1, hypothesis: 'h', gates: [] })).toThrow('requires an approach string')
+    expect(() => factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 1, gates: [] })).toThrow('requires a hypothesis string')
+    expect(() => factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 'h', milestone: 0, gates: [] })).toThrow('positive safe integer')
+    expect(() => factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 'h', gates: 'x' })).toThrow('array of command strings')
+    expect(() => factory.parseAttemptArgs({ topic: 'synth', approach: 'a', hypothesis: 'h', gates: [42] })).toThrow('array of command strings')
+
+    expect(factory.parseDistillArgs({ topic: 'synth', name: 'dsh-synth', description: 'd', body: 'b' }))
+      .toEqual({ topic: 'synth', name: 'dsh-synth', description: 'd', body: 'b' })
+    expect(() => factory.parseDistillArgs(null)).toThrow('must be an object')
+    expect(() => factory.parseDistillArgs({ topic: 1, name: 'n', description: 'd', body: 'b' })).toThrow('requires a topic string')
+    expect(() => factory.parseDistillArgs({ topic: 'synth', name: 1, description: 'd', body: 'b' })).toThrow('requires a name string')
+    expect(() => factory.parseDistillArgs({ topic: 'synth', name: 'n', description: 1, body: 'b' })).toThrow('requires a description string')
+    expect(() => factory.parseDistillArgs({ topic: 'synth', name: 'n', description: 'd', body: 1 })).toThrow('requires a body string')
+  })
+
+  it('records a green attempt with evidence and distills it into a carried skill', async () => {
+    const attempt = tool('rehearsal_attempt', { repositoryPath: mother })
+    const green = await attempt.execute(
+      { topic: 'engine', approach: 'dsp graph', hypothesis: 'a graph node per voice', gates: ['true'], milestone: 1 },
+      exec(),
+    ) as Record<string, unknown>
+    expect(green).toMatchObject({ topic: 'engine', seq: 1, verdict: 'green', stuck: false, attemptsUsed: 1, maxAttempts: 6 })
+    expect((attempt.output.render({}, green) as Array<{ text: string }>)[0].text).toContain('attempt 1 of 6')
+    expect((attempt.output.render({}, { ...green, stuck: true }) as Array<{ text: string }>)[0].text).toContain('topic is STUCK')
+
+    const report = await tool('rehearsal_report', { repositoryPath: mother }).execute({}, exec()) as { topics: unknown[]; skills: string[] }
+    expect(report.topics).toHaveLength(1)
+    expect(report.skills).toEqual([])
+
+    const distill = tool('rehearsal_distill', { repositoryPath: mother })
+    const distilled = await distill.execute(
+      { topic: 'engine', name: 'dsh-rehearsed-engine', description: 'How to build the engine', body: '# Engine\n' },
+      exec(),
+    ) as Record<string, unknown>
+    expect(distilled).toMatchObject({ topic: 'engine', attemptSeq: 1, superseded: false })
+    expect((distill.output.render({}, distilled) as Array<{ text: string }>)[0].text).toContain('dsh-rehearsed-engine')
+    await expect(readFile(join(mother, '.rehearsal-home', 'skills', 'engine.md'), 'utf8')).resolves.toContain('name: dsh-rehearsed-engine')
+
+    const superseded = await distill.execute(
+      { topic: 'engine', name: 'dsh-rehearsed-engine', description: 'Better', body: '# Engine v2\n' },
+      exec(),
+    ) as Record<string, unknown>
+    expect(superseded.superseded).toBe(true)
+    expect((distill.output.render({}, superseded) as Array<{ text: string }>)[0].text)
+      .toContain('replaced an earlier distilled skill')
+  })
+
+  it('refuses a red-only distill and reports coverage', async () => {
+    const attempt = tool('rehearsal_attempt', { repositoryPath: mother })
+    const red = await attempt.execute(
+      { topic: 'sequencer', approach: 'flat loop', hypothesis: 'a flat loop is enough', gates: ['false'] },
+      exec(),
+    ) as Record<string, unknown>
+    expect(red).toMatchObject({ verdict: 'red', stuck: false })
+    expect((attempt.output.render({}, red) as Array<{ text: string }>)[0].text).toContain('exited 1')
+    await expect(tool('rehearsal_distill', { repositoryPath: mother }).execute(
+      { topic: 'sequencer', name: 'dsh-x', description: 'd', body: 'b' },
+      exec(),
+    )).rejects.toThrow('no green rehearsal attempt')
+
+    const report = await tool('rehearsal_report', { repositoryPath: mother }).execute({}, exec()) as { skills: string[] }
+    expect(report.skills).toContain('engine')
+
+    const rendered = tool('rehearsal_report').output.render({}, {
+      topics: [{ topic: 'engine', attempts: 2, green: 1, red: 1, stuck: true, distilled: true }],
+      skills: ['engine'],
+    }) as Array<{ text: string }>
+    expect(rendered[0].text).toContain('engine: 2 attempt(s), 1 green, 1 red, STUCK, distilled')
+    expect(rendered[0].text).toContain('Distilled skills: engine')
+    const plain = tool('rehearsal_report').output.render({}, {
+      topics: [{ topic: 'sequencer', attempts: 1, green: 0, red: 1, stuck: false, distilled: false }],
+      skills: [],
+    }) as Array<{ text: string }>
+    expect(plain[0].text).toContain('sequencer: 1 attempt(s), 0 green, 1 red')
+    expect(plain[0].text).not.toContain('Distilled skills:')
+    const empty = tool('rehearsal_report').output.render({}, { topics: [], skills: [] }) as Array<{ text: string }>
+    expect(empty[0].text).toBe('No rehearsal attempts recorded yet.')
+  })
+
+  it('enforces the topic budget and the stuck strike rule', async () => {
+    const dir = join(workspace, 'rehearsal-budget')
+    await mkdir(dir, { recursive: true })
+    const attempt = tool('rehearsal_attempt', { repositoryPath: dir })
+    for (let index = 0; index < 3; index++) {
+      const report = await attempt.execute(
+        { topic: 'mixer', approach: 'same way', hypothesis: 'h', gates: ['false'] },
+        exec(),
+      ) as Record<string, unknown>
+      expect(report.stuck).toBe(index === 2)
+    }
+    await expect(attempt.execute({ topic: 'mixer', approach: 'same way', hypothesis: 'h', gates: ['true'] }, exec()))
+      .rejects.toThrow('topic mixer is stuck')
+    await expect(attempt.execute({ topic: 'mixer', approach: 'different way', hypothesis: 'h', gates: ['true'] }, exec()))
+      .resolves.toMatchObject({ verdict: 'green', stuck: false })
+    for (let index = 0; index < 2; index++) {
+      await attempt.execute({ topic: 'mixer', approach: `way ${index}`, hypothesis: 'h', gates: ['true'] }, exec())
+    }
+    await expect(attempt.execute({ topic: 'mixer', approach: 'another way', hypothesis: 'h', gates: ['true'] }, exec()))
+      .rejects.toThrow('budget for topic mixer is exhausted')
+  })
+
+  it('gates spawn on rehearsal coverage when required and carries distilled skills', async () => {
+    const gatedGoal = '## Milestones\n\n- M1: Engine\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n'
+    const fresh = join(workspace, 'unrehearsed')
+    await mkdir(fresh, { recursive: true })
+    const twoMilestones = '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo a > a.ts` builds\n\n- M2: `echo b > b.ts` builds\n'
+    await expect(tool('spawn_and_mutate', { repositoryPath: fresh }).execute(
+      { goalMarkdown: twoMilestones, targetPath: join(fresh, 'clone'), requireRehearsalCoverage: true },
+      exec(),
+    )).rejects.toThrow('M1 (Engine), M2 (Interface) have no green rehearsal attempt')
+    await expect(tool('spawn_and_mutate', { repositoryPath: fresh }).execute(
+      { goalMarkdown: gatedGoal, targetPath: join(fresh, 'clone'), requireRehearsalCoverage: true },
+      exec(),
+    )).rejects.toThrow('rehearsal coverage is incomplete')
+    const spawn = tool('spawn_and_mutate', { repositoryPath: mother })
+    const target = join(workspace, 'gated-clone')
+    const result = await spawn.execute({ goalMarkdown: gatedGoal, targetPath: target, requireRehearsalCoverage: true }, exec()) as Record<string, unknown>
+    expect(result.rehearsedSkills).toEqual(['dsh-rehearsed-engine'])
+    await expect(readFile(join(target, '.agents', 'skills', 'dsh-rehearsed-engine', 'SKILL.md'), 'utf8'))
+      .resolves.toContain('# Engine v2')
   })
 })
