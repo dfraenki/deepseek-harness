@@ -10020,6 +10020,9 @@ importers:
       '@deepseek-ai/dsh-experimental-factory':
         specifier: workspace:*
         version: link:../factory
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:*
+        version: link:../../host/webserver
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt

@@ -15,6 +15,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SPAWN_RECORD_NAME } from '@deepseek-ai/dsh-experimental-factory'
 import type { CatalogReport, PublishReport, PublishTarget } from './catalog.ts'
 import { PUBLISH_TARGETS, publishApp, scanApps } from './catalog.ts'
+import { registerCatalogWeb } from './web.ts'
 
 export const name = 'factory-catalog'
 export const inject = ['tools', 'systemPrompt']
@@ -174,4 +175,7 @@ export function apply(ctx: Context, config: Config): void {
       }
     },
   }))
+  ctx.inject(['webServer', 'connection'], (webCtx) => {
+    registerCatalogWeb(webCtx, resolved.appsDir)
+  })
 }

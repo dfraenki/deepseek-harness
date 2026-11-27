@@ -27,9 +27,11 @@ function setup(config: catalog.Config = {}): SetupResult {
   const section = vi.fn()
   const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_FACTORY_CATALOG' ? 2680 : 0))
   const register = vi.fn()
+  const inject = vi.fn()
   const ctx = {
     systemPrompt: { section, getSectionOrder },
     tools: { register },
+    inject,
   } as unknown as Context
   catalog.apply(ctx, config)
   return { section, getSectionOrder, register }

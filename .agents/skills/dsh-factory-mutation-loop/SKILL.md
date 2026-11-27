@@ -26,6 +26,15 @@ Run them in order; the first red gate ends the attempt:
 - **Preview boot smoke**: the clone's web app on its preview instance (per [dsh-factory-live-preview](../dsh-factory-live-preview/SKILL.md)) boots and the console stays free of errors. A milestone that changes UI must additionally exercise its surface: the agent drives the same preview instance through its browser-use session and the acceptance criterion's UI assertion passes. The user may be watching this exact instance while it is being verified — a green milestone is one that survived being used, not one whose author claimed it works.
 - **Goal criteria**: every acceptance criterion the goal file marks for this milestone runs and passes.
 
+## Ground rules from the first real run
+
+A live smoke run of the loop surfaced rules the gates alone do not teach:
+
+- **The clone is ESM**: the harness package declares `"type": "module"`, so milestone code must use `import`/`export`, never `require` — a CommonJS gate file fails with `require is not defined in ES module scope`.
+- **Gate files must be tracked**: the repo-wide `.gitignore` excludes `lib/`, `dist/`, and build outputs; an acceptance gate that lives under an ignored path passes while leaving the work tree empty, and the checkpoint then refuses to commit ("green but no changes"). Put milestone code and its gates under tracked paths (for example `engine/`, `cli/`, or a new package directory).
+- **Gates are plain commands on PATH**: they run in the clone root with the clone's own environment; prefer a single `node <file>.test.js` per criterion so the gate log names exactly one failure.
+- **The mother never hosts milestone code**: it is only read; everything a milestone produces lands inside the clone and is committed only by the checkpoint.
+
 ## Git autopilot
 
 - **Commit on green**: when a milestone's gates pass, the loop commits automatically with a message naming the milestone. Never mix a green milestone with unverified work in one commit.

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary（摘要）
 
-本包是智能体软件工厂的目录与发布决策层：每次开发完成后，工厂母体都会把该应用记入 Artifork 目录，并决定是发布到托管服务商还是仅保留在目录中。`factory_catalog` 从应用自身的文件与 git 历史推导每个已生成应用的状态、里程碑进度、最后绿色提交以及已提交的发布决策——目录本身不保存任何状态；`factory_publish` 先验证应用确已完成，再把决策写入已提交的 `PUBLISH_RECORD.json`，并且在选择托管目标时生成可直接执行的 `PUBLISH_MANIFEST.md`，由持有云凭证的人类或 CI 任务执行。所有机制均为文件、目录与 git 操作；本包不含任何模型判断。
+本包是智能体软件工厂的目录与发布决策层：每次开发完成后，工厂母体都会把该应用记入 Artifork 目录，并决定是发布到托管服务商还是仅保留在目录中。`factory_catalog` 从应用自身的文件与 git 历史推导每个已生成应用的状态、里程碑进度、最后绿色提交以及已提交的发布决策——目录本身不保存任何状态；`factory_publish` 先验证应用确已完成，再把决策写入已提交的 `PUBLISH_RECORD.json`，并且在选择托管目标时生成可直接执行的 `PUBLISH_MANIFEST.md`，由持有云凭证的人类或 CI 任务执行。当组合运行 web GUI 的 web 服务器时，插件还会提供 `GET /factory/catalog`——一份只读的 HTML 总览，列出每个应用的状态、里程碑进度、发布决策，以及指向克隆专用端口上的预览链接——和承载相同事实的 `GET /factory/catalog.json`。所有机制均为文件、目录、git 与 HTTP 操作；本包不包含任何模型判断。
 
 ## Table of Contents（目录）
 
@@ -20,7 +20,7 @@ kind: "package-reference"
 
 ## Use this package（使用本包）
 
-把本包作为插件注册到工厂母体，它会贡献两个目录工具加一个静态策略节，说明何时查阅目录以及如何记录决策。插件接受两个配置项：`repositoryPath`（目录所服务的工厂检出，默认为进程工作目录，拒绝空值）和 `appsDir`（子目录即已生成应用的目录，默认 `apps`，相对 `repositoryPath`）。插件在变异克隆内部不生效：克隆永远不会对自身编目或发布，与 factory 包的角色门控注册保持一致。
+把本包作为插件注册到工厂母体，它会贡献两个目录工具加一个静态策略节，说明何时查阅目录以及如何记录决策。插件接受两个配置项：`repositoryPath`（目录所服务的工厂检出，默认为进程工作目录，拒绝空值）和 `appsDir`（子目录即已生成应用的目录，默认 `apps`，相对 `repositoryPath`）。插件在变异克隆内部不生效：克隆永远不会对自身编目或发布，与 factory 包的角色门控注册保持一致。当组合同时运行 web 服务器与 connection 服务时，插件还会额外注册 `GET /factory/catalog` 与 `GET /factory/catalog.json`；两条路由都位于 connection 服务的 Host/Origin 栅栏与浏览器认证之后，返回 `no-store` 快照，并在各应用的生成记录端口上链接其实时预览。没有 web 服务器的 headless 组合则不提供任何路由——工具照常工作。
 
 `factory_catalog` 不接收参数，报告应用目录下每个可读的应用；没有生成记录的目录会被静默忽略，无法读取的应用会连同原因一起报告为已跳过。`factory_publish` 需要一个 `appPath`，可选一个 `target`（默认 `catalog-only`；取值为 `catalog-only`、`cloudflare`、`hostinger` 之一）。发布拒绝任何非完成状态或检出不干净的应用，拒绝在 `cloudflare` 目标上发布无界面应用，并提交它写入的每一个文件。
 
@@ -30,7 +30,7 @@ kind: "package-reference"
 
 ## Model Experience（模型体验）
 
-模型会在系统提示中看到目录策略：应用完成其变异目标后查阅 `factory_catalog`，与人类共同决定是否发布到托管服务商，用 `factory_publish` 记录决策，并且在目录报告完成之前绝不声称应用可发布。两个工具都以纯文本渲染结果：按应用逐行列出的目录（`name: status, milestone M2/2, green at <commit>, publish manifest-ready (cloudflare)`，或 `SKIPPED (reason)`）、明确的空状态，以及指明记录路径并在存在时附带清单路径与"持有云凭证的人类或 CI 任务必须执行"提醒的发布确认。
+模型会在系统提示中看到目录策略：应用完成其变异目标后查阅 `factory_catalog`，与人类共同决定是否发布到托管服务商，用 `factory_publish` 记录决策，并且在目录报告完成之前绝不声称应用可发布。两个工具都以纯文本渲染结果：按应用逐行列出的目录（`name: status, milestone M2/2, green at <commit>, publish manifest-ready (cloudflare)`，或 `SKIPPED (reason)`）、明确的空状态，以及指明记录路径并在存在时附带清单路径与"持有云凭证的人类或 CI 任务必须执行"提醒的发布确认。人类在 `/factory/catalog` 页面上看到同样的事实：每个完整应用的预览链接会在其专用端口上打开克隆正在运行的应用——用户与模型读取的是由相同文件推导出的同一份目录。
 
 ## Known Limitations and Deferred Work（已知限制与延后工作）
 
