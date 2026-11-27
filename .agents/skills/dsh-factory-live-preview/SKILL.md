@@ -21,6 +21,17 @@ The clone's web profile runs on its isolated port (assigned at spawn, recorded i
 - **At each gate:** the boot smoke and UI assertions run against a freshly built output, not the HMR stream, so a green verdict always reflects what a shipped build does. After a green verdict the preview switches to the verified build and the run header flips to "milestone green".
 - **On rollback:** after a `git reset --hard` the preview rebuilds from the restored commit; the header explains the rollback and the approach being retried, so the user is never left staring at an unexplained regression.
 
+## The MVP implementation (`factory-preview`)
+
+The clone-side plugin `@deepseek-ai/dsh-experimental-factory-preview` owns the mechanics. It launches the clone's own `dsh web --port <port>` as a child process with `DSH_HOME` pointed at the clone's `.mutation-home`, so the app boots with the clone's home, database, and port, and never collides with the mother. Four tools:
+
+- `preview_start` — idempotent launch: reads the spawn record for the reserved port, restarts if the recorded pid is dead, polls the origin until it answers HTTP (or the start budget expires), and returns the shared URL.
+- `preview_status` — pid liveness plus a fresh HTTP probe, with the log tail.
+- `preview_stop` — SIGTERM with a kill fallback after a short grace.
+- `preview_probe` — one HTTP request against the same origin the user watches; this is how the agent tests the shared instance (browser-use sessions attach to the same URL for full interaction).
+
+State and logs live under `.mutation-home/preview/` (`state.json`, `server.log`), already excluded from git, so a rollback never resurrects a stale process record. The command is plugin config (`command`/`args`), defaulting to the clone's `node_modules/.bin/dsh web --port <port>`; a clone without installed dependencies fails the start with that exact diagnosis.
+
 ## Rules
 
 - The preview is read-and-probe for the user; the only writes to the clone's tree come from the loop. User feedback travels through the conversation and an explicit goal revision, never by editing clone files from the mother.

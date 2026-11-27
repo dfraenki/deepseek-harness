@@ -585,6 +585,8 @@
       "@deepseek-ai/dsh-tool-present": ["./packages/deliverables/tool-present/src"],
       "@deepseek-ai/dsh-tool-pwsh-persistent": ["./packages/shell/tool-pwsh-persistent/src"],
       "@deepseek-ai/dsh-experimental-factory": ["./packages/experimental/factory/src"],
+      "@deepseek-ai/dsh-experimental-factory-observers": ["./packages/experimental/factory-observers/src"],
+      "@deepseek-ai/dsh-experimental-factory-preview": ["./packages/experimental/factory-preview/src"],
       "@deepseek-ai/dsh-tool-ralph": ["./packages/experimental/tool-ralph/src"],
       "@deepseek-ai/dsh-tool-schedule": ["./packages/schedule/tool-schedule/src"],
       "@deepseek-ai/dsh-tool-session-query": ["./packages/experimental/tool-session-query/src"],

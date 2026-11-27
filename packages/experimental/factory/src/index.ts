@@ -16,6 +16,15 @@ import type { RoundsReport } from './driver.ts'
 import { DEFAULT_MAX_ROUNDS, runRounds } from './driver.ts'
 import { GOAL_FILE_NAME, spawnClone } from './spawn.ts'
 
+export {
+  MUTATION_HOME_NAME,
+  SPAWN_RECORD_NAME,
+  readSpawnRecord,
+  resolveFreePort,
+  writeSpawnRecord,
+  type SpawnRecord,
+} from './spawn.ts'
+
 export const name = 'tool-spawn'
 export const inject = ['tools', 'systemPrompt']
 
