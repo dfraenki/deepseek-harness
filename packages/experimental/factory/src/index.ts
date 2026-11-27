@@ -1,8 +1,8 @@
 /**
- * Model-facing `spawn_and_mutate` tool: spawn an isolated clone of the running
- * checkout that then mutates itself toward a mutation goal. Explicit-ask only;
- * the loop that drives a spawned clone is mounted by the factory bundle, not
- * by this tool.
+ * Model-facing factory tools: `spawn_and_mutate` replicates the running
+ * checkout into an isolated clone, `mutation_checkpoint` verifies and commits
+ * one milestone with git-protected strikes, and `mutation_run` drives those
+ * checkpoints back to back until the goal reports complete. Explicit-ask only.
  * @module @deepseek-ai/dsh-experimental-factory
  */
 
@@ -12,6 +12,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CheckpointReport } from './autopilot.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { runCheckpoint } from './autopilot.ts'
+import type { RoundsReport } from './driver.ts'
+import { DEFAULT_MAX_ROUNDS, runRounds } from './driver.ts'
 import { GOAL_FILE_NAME, spawnClone } from './spawn.ts'
 
 export const name = 'tool-spawn'
@@ -123,6 +125,37 @@ function renderCheckpoint(value: CheckpointReport): ContentBlock[] {
   }]
 }
 
+const ROUNDS_OUTPUT_PROPERTIES = {
+  rounds: { type: 'number', description: 'Checkpoints executed in this run.' },
+  stoppedBecause: { type: 'string', description: 'complete, paused (coach pause flag), or max-rounds.' },
+  lastMilestone: { type: 'number', description: 'Milestone of the last checkpoint, when one ran.' },
+  lastOutcome: { type: 'string', description: 'Outcome of the last checkpoint, when one ran.' },
+  lastDetail: { type: 'string', description: 'Decision rationale of the last checkpoint, when one ran.' },
+} as const
+
+function renderRounds(value: RoundsReport): ContentBlock[] {
+  const last = value.lastReport === undefined
+    ? 'no checkpoint ran'
+    : `last checkpoint M${value.lastReport.milestone} (${value.lastReport.title}) — ${value.lastReport.outcome}: ${value.lastReport.detail}`
+  return [{
+    type: 'text',
+    text: `Mutation rounds finished: ${value.rounds} checkpoint(s), stopped because ${value.stoppedBecause}; ${last}`,
+  }]
+}
+
+/** Validate mutation_run arguments: an optional positive integer round budget. */
+export function parseRunArgs(args: unknown): { maxRounds?: number } {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('mutation_run arguments must be an object')
+  }
+  const maxRounds = (args as Record<string, unknown>).maxRounds
+  if (maxRounds === undefined) return {}
+  if (typeof maxRounds !== 'number' || !Number.isInteger(maxRounds) || maxRounds < 1) {
+    throw new Error('mutation_run maxRounds must be a positive integer')
+  }
+  return { maxRounds }
+}
+
 /** Register the explicit-ask spawn tool and its usage policy. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
@@ -150,6 +183,37 @@ export function apply(ctx: Context, config: Config): void {
     },
     async execute(_args, exec) {
       return runCheckpoint({ clonePath: resolved.repositoryPath, signal: exec.signal })
+    },
+  }))
+  ctx.systemPrompt.section({
+    name: 'tool:mutation-run',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_RUN'),
+    text: 'Call the mutation_run tool to drive checkpoint rounds back to back until the mutation goal reports complete. It stops on its own when a coaching pause flag appears or the round budget runs out, and every round is still gated by mutation_checkpoint. Never use it outside a spawned clone, and never bypass the checkpoint by committing mutation work directly.',
+  })
+  ctx.tools.register(defineTool({
+    name: 'mutation_run',
+    description: 'Drive mutation checkpoint rounds back to back until the goal reports complete, a coach pause flag appears, or the round budget runs out.',
+    parameters: {
+      maxRounds: {
+        type: 'number',
+        description: `Optional round budget; defaults to ${DEFAULT_MAX_ROUNDS}.`,
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: ROUNDS_OUTPUT_PROPERTIES,
+      },
+      render: (_args, value) => renderRounds(value as unknown as RoundsReport),
+    },
+    async execute(args, exec) {
+      const parsed = parseRunArgs(args)
+      return runRounds({
+        clonePath: resolved.repositoryPath,
+        ...parsed.maxRounds === undefined ? {} : { maxRounds: parsed.maxRounds },
+        signal: exec.signal,
+      })
     },
   }))
   ctx.tools.register(defineTool({

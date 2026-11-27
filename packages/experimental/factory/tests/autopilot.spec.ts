@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, constants, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { GOAL_FILE_NAME, commitAll } from '../src/spawn.ts'
+import { GOAL_FILE_NAME, SPAWN_RECORD_NAME, commitAll, sha256File } from '../src/spawn.ts'
 import {
   LOOP_STATE_NAME,
   MAX_ATTEMPTS,
@@ -174,6 +174,48 @@ describe('runCheckpoint', () => {
     expect(log).toContain('M1 rolled back')
     expect(log).toContain('different approach')
     expect(log).toContain('exited 9')
+    await expect(git(clone, ['status', '--porcelain'])).resolves.toBe('')
+    await expect(access(join(clone, 'broken-plugin.ts'), constants.F_OK)).rejects.toThrow()
+  })
+
+  it('kills a gate that exceeds its time budget as red with exit code 124', async () => {
+    const clone = join(workspace, 'loop-timeout')
+    await mkdir(clone, { recursive: true })
+    const report = await runGateCommand(clone, 'sleep 5', undefined, 50)
+    expect(report.ok).toBe(false)
+    expect(report.exitCode).toBe(124)
+  })
+
+  it('rejects a goal file that was mutated after spawn', async () => {
+    const clone = await makeClone('loop-frozen-bad', goalFor(['- M1: `echo hi > hi.txt` writes']))
+    await writeFile(join(clone, SPAWN_RECORD_NAME), `${JSON.stringify({ version: 1, goalSha256: '0'.repeat(64) }, null, 2)}\n`)
+    await expect(runCheckpoint({ clonePath: clone })).rejects.toThrow('goal is frozen')
+  })
+
+  it('accepts a goal file whose hash still matches the spawn record', async () => {
+    const clone = await makeClone('loop-frozen-ok', goalFor(['- M1: `echo hi > hi.txt` writes']))
+    const record = { version: 1, goalSha256: await sha256File(join(clone, GOAL_FILE_NAME)) }
+    await writeFile(join(clone, SPAWN_RECORD_NAME), `${JSON.stringify(record, null, 2)}\n`)
+    const report = await runCheckpoint({ clonePath: clone })
+    expect(report.outcome).toBe('committed')
+  })
+
+  it('counts a green-but-empty checkpoint as a failed attempt', async () => {
+    const clone = await makeClone('loop-empty-green', goalFor(['- M1: `true` no-op gate']))
+    const report = await runCheckpoint({ clonePath: clone })
+    expect(report.outcome).toBe('failed')
+    expect(report.attempts).toBe(1)
+    expect(report.detail).toContain('no changes to commit')
+  })
+
+  it('rolls back when every strike was green-but-empty', async () => {
+    const clone = await makeClone('loop-empty-rollback', goalFor(['- M1: `true` no-op gate']))
+    const green = await git(clone, ['rev-parse', 'HEAD'])
+    await saveLoopState(clone, { version: 1, currentMilestone: 1, attempts: MAX_ATTEMPTS - 1, lastGreenCommit: green })
+    const report = await runCheckpoint({ clonePath: clone })
+    expect(report.outcome).toBe('rolled-back')
+    const log = await readFile(join(clone, MUTATION_LOG_NAME), 'utf8')
+    expect(log).toContain('no work-tree changes')
   })
 
   it('requires the goal file', async () => {
@@ -197,6 +239,12 @@ describe('runCheckpoint', () => {
     const clone = await makeClone('loop-eisdir-goal', goalFor(['- M1: `true` engine builds']))
     await rm(join(clone, GOAL_FILE_NAME))
     await mkdir(join(clone, GOAL_FILE_NAME))
+    await expect(runCheckpoint({ clonePath: clone })).rejects.toThrow()
+  })
+
+  it('rethrows read errors on the spawn record that are not missing-file errors', async () => {
+    const clone = await makeClone('loop-eisdir-record', goalFor(['- M1: `true` engine builds']))
+    await mkdir(join(clone, SPAWN_RECORD_NAME), { recursive: true })
     await expect(runCheckpoint({ clonePath: clone })).rejects.toThrow()
   })
 

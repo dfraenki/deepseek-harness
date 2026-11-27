@@ -25,7 +25,7 @@ interface SetupResult {
 
 function setup(config: factory.Config = {}): SetupResult {
   const section = vi.fn()
-  const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_MUTATION_CHECKPOINT' ? 2660 : 2650))
+  const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_MUTATION_CHECKPOINT' ? 2660 : key === 'TOOL_MUTATION_RUN' ? 2665 : 2650))
   const register = vi.fn()
   const ctx = {
     systemPrompt: { section, getSectionOrder },
@@ -35,7 +35,7 @@ function setup(config: factory.Config = {}): SetupResult {
   return { ctx, section, getSectionOrder, register }
 }
 
-function tool(name: 'spawn_and_mutate' | 'mutation_checkpoint' = 'spawn_and_mutate', config: factory.Config = {}) {
+function tool(name: 'spawn_and_mutate' | 'mutation_checkpoint' | 'mutation_run' = 'spawn_and_mutate', config: factory.Config = {}) {
   const { register } = setup(config)
   const registered = register.mock.calls.map(call => call[0] as { name: string })
   const found = registered.find(tool => tool.name === name)
@@ -118,7 +118,7 @@ describe('parseArgs', () => {
 })
 
 describe('apply', () => {
-  it('registers the explicit-ask policy section and the tool', () => {
+  it('registers the explicit-ask policy sections and the three tools', () => {
     const { section, getSectionOrder, register } = setup({ repositoryPath: mother })
     expect(getSectionOrder).toHaveBeenCalledWith('TOOL_SPAWN')
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
@@ -126,16 +126,38 @@ describe('apply', () => {
       order: 2650,
       text: expect.stringContaining('ONLY when the human explicitly asks'),
     }))
-    expect(section).toHaveBeenCalledTimes(2)
+    expect(section).toHaveBeenCalledTimes(3)
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
       name: 'tool:mutation-checkpoint',
       order: 2660,
       text: expect.stringContaining('Never claim a milestone is green without a checkpoint report'),
     }))
-    expect(register).toHaveBeenCalledTimes(2)
+    expect(section).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'tool:mutation-run',
+      order: 2665,
+      text: expect.stringContaining('Never use it outside a spawned clone'),
+    }))
+    expect(register).toHaveBeenCalledTimes(3)
     expect(tool('spawn_and_mutate').name).toBe('spawn_and_mutate')
     expect(tool('spawn_and_mutate').description).toContain('mutation goal')
     expect(tool('mutation_checkpoint').description).toContain('roll back on the third consecutive failure')
+    expect(tool('mutation_run').description).toContain('until the goal reports complete')
+  })
+})
+
+describe('parseRunArgs', () => {
+  it('defaults to the driver round budget', () => {
+    expect(factory.parseRunArgs({})).toEqual({})
+    expect(factory.parseRunArgs({ maxRounds: 5 })).toEqual({ maxRounds: 5 })
+  })
+
+  it('rejects non-object arguments and invalid budgets', () => {
+    expect(() => factory.parseRunArgs(null)).toThrow('must be an object')
+    expect(() => factory.parseRunArgs('nope')).toThrow('must be an object')
+    expect(() => factory.parseRunArgs([])).toThrow('must be an object')
+    expect(() => factory.parseRunArgs({ maxRounds: 0 })).toThrow('positive integer')
+    expect(() => factory.parseRunArgs({ maxRounds: 1.5 })).toThrow('positive integer')
+    expect(() => factory.parseRunArgs({ maxRounds: 'lots' })).toThrow('positive integer')
   })
 })
 
@@ -215,6 +237,51 @@ describe('spawn_and_mutate execute', () => {
     expect(await git(clone, ['log', '-1', '--format=%s'])).toBe('Mutation: M1 Engine')
     const rendered = checkpoint.output.render({}, report) as Array<{ type: string; text: string }>
     expect(rendered[0].text).toContain('committed')
+  })
+
+  it('drives rounds to completion inside the clone', async () => {
+    const clone = join(workspace, 'tool-run-clone')
+    await mkdir(clone, { recursive: true })
+    await git(clone, ['init'])
+    await git(clone, ['config', 'user.name', 'Fixture'])
+    await git(clone, ['config', 'user.email', 'fixture@example.test'])
+    await writeFile(join(clone, 'README.md'), 'clone\n')
+    await git(clone, ['add', '-A'])
+    await git(clone, ['commit', '-m', 'spawn baseline'])
+    await writeFile(
+      join(clone, 'MUTATION_GOAL.md'),
+      '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n',
+    )
+    const run = tool('mutation_run', { repositoryPath: clone })
+    const report = await run.execute({ maxRounds: 8 }, exec()) as Record<string, unknown>
+    expect(report.stoppedBecause).toBe('complete')
+    expect(report.rounds).toBe(2)
+    const rendered = run.output.render({}, report) as Array<{ type: string; text: string }>
+    expect(rendered[0].text).toContain('stopped because complete')
+    expect(rendered[0].text).toContain('M2')
+  })
+
+  it('pauses before the first round when the clone carries a coach pause flag', async () => {
+    const clone = join(workspace, 'tool-run-paused')
+    await mkdir(join(clone, '.coaches'), { recursive: true })
+    await writeFile(join(clone, '.coaches', 'PAUSE'), 'paused\n')
+    const run = tool('mutation_run', { repositoryPath: clone })
+    const report = await run.execute({}, exec()) as Record<string, unknown>
+    expect(report.stoppedBecause).toBe('paused')
+    expect(report.rounds).toBe(0)
+  })
+
+  it('renders a rounds run that paused before the first checkpoint', () => {
+    const run = tool('mutation_run')
+    const blocks = run.output.render({}, { rounds: 0, stoppedBecause: 'paused' }) as Array<{ type: string; text: string }>
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].text).toContain('no checkpoint ran')
+  })
+
+  it('rejects malformed mutation_run arguments', async () => {
+    const run = tool('mutation_run')
+    await expect(run.execute(null, exec())).rejects.toThrow('must be an object')
+    await expect(run.execute({ maxRounds: 0 }, exec())).rejects.toThrow('positive integer')
   })
 
   it('rejects malformed reference paths', async () => {

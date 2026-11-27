@@ -110,6 +110,22 @@ export async function resolveFreePort(desiredPort = 0): Promise<number> {
   })
 }
 
+/** SHA-256 of a file's content; the goal-freeze check compares it against the spawn record. */
+export async function sha256File(filePath: string, signal?: AbortSignal): Promise<string> {
+  return createHash('sha256').update(await readFile(filePath, { encoding: 'utf8', signal })).digest('hex')
+}
+
+/** Read the spawn record from a checkout, or null when the checkout was not factory-spawned. */
+export async function readSpawnRecord(clonePath: string, signal?: AbortSignal): Promise<SpawnRecord | null> {
+  try {
+    const raw = await readFile(join(clonePath, SPAWN_RECORD_NAME), { encoding: 'utf8', signal })
+    return JSON.parse(raw) as SpawnRecord
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
 /** Write the goal file and copy every declared reference into `references/`. */
 export async function prepareGoal(
   clonePath: string,
@@ -174,7 +190,7 @@ export async function spawnClone(options: SpawnOptions): Promise<SpawnRecord> {
   const homePath = join(targetPath, MUTATION_HOME_NAME)
   await mkdir(homePath)
   const goalPath = await prepareGoal(targetPath, goalMarkdown, referencePaths)
-  const goalSha256 = createHash('sha256').update(await readFile(goalPath, { encoding: 'utf8', signal })).digest('hex')
+  const goalSha256 = await sha256File(goalPath, signal)
   const record: SpawnRecord = {
     version: 1,
     sourceCommit,
