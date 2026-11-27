@@ -6,7 +6,7 @@ Status: proposed
 
 ## Problem
 
-Artifork 目前是作用于外部工作区的助手：智能体编辑其他仓库，而本仓库自身的代码、UI 与插件从模型视角看是静态的。要把 harness 变成另一个应用——"变成一个直观的电子音乐制作 DAW"——仍然需要人工 fork、重塑品牌、重新组合插件并保持构建通过。当前架构由此产生三个能力缺口。第一，没有自我克隆：没有任何机制能把工厂自身的最小核心复制到隔离目录并作为独立应用启动。第二，没有无人值守的转换循环：`tool-ralph`（[README](../../../../packages/experimental/tool-ralph/README.md)）已经能围绕一个不可变目标运行全新智能体回合并进行结构化交接，但没有任何东西把这个循环接到一个描述整个目标应用的目标文件、接每个里程碑的真实构建/测试验证、或带回滚的 git 检查点上。第三，从多模态简报——自然语言加参考应用的截图——到重新组合产品的 Cordis 插件集合，没有一等公民的路径，尽管所需的组合补丁机制已经存在（[ralph-bundle 的 `cordis.patch.yml`](../../../../packages/experimental/ralph-bundle/cordis.patch.yml)），而且身份变异的完整 playbook 刚刚通过 Artifork 品牌重塑人工演练过一遍。
+Artifork 目前是作用于外部工作区的助手：智能体编辑其他仓库，而本仓库自身的代码、UI 与插件从模型视角看是静态的。要把 harness 变成另一个应用——"变成一个直观的电子音乐制作 DAW"——仍然需要人工 fork、重塑品牌、重新组合插件并保持构建通过。当前架构由此产生三个能力缺口。第一，没有自我克隆：没有任何机制能把工厂自身的最小核心复制到隔离目录并作为独立应用启动。第二，没有无人值守的转换循环：`tool-ralph`（[README](../../../../packages/experimental/tool-ralph/README.zh.md)）已经能围绕一个不可变目标运行全新智能体回合并进行结构化交接，但没有任何东西把这个循环接到一个描述整个目标应用的目标文件、接每个里程碑的真实构建/测试验证、或带回滚的 git 检查点上。第三，从多模态简报——自然语言加参考应用的截图——到重新组合产品的 Cordis 插件集合，没有一等公民的路径，尽管所需的组合补丁机制已经存在（[ralph-bundle 的 `cordis.patch.yml`](../../../../packages/experimental/ralph-bundle/cordis.patch.yml)），而且身份变异的完整 playbook 刚刚通过 Artifork 品牌重塑人工演练过一遍。
 
 ## Proposal
 
@@ -14,10 +14,10 @@ Artifork 目前是作用于外部工作区的助手：智能体编辑其他仓�
 
 1. **目标摄取（多模态）。** 克隆根目录的 `MUTATION_GOAL.md` 定义目标应用：身份（名称、标语、品牌方向）、领域、体验叙事、功能列表、带可执行验收检查的有序里程碑、整体验收标准、参考资料。参考材料——截图、设计稿、竞品应用笔记——放在同级的 `references/` 里；具备视觉能力的模型已经能通过现有 LLM 栈摄取图像，循环的前几个回合把每份参考转化为工作区中的结构化分析文件，按 ralph 的"工作区即权威"契约充当回合间的记忆。
 2. **隔离克隆（`spawn_and_mutate`）。** 工厂从不变异自身。克隆把运行中的检出复制到目标目录（本地 `git clone`、全新历史），分配独立的 `DSH_HOME`、服务端口与数据库，并写入 `MUTATION_GOAL.md`。第一版克隆完整 monorepo，通过生成的变异 profile 补丁（`cordis.patch.yml` 形态）重新组合克隆*运行*的内容，而不是删除包：构建完整性按构造得到保证；剪裁成最小核心只在克隆与循环被证明之后再做优化。此能力由一个插件（新的实验性 `factory` 包）承载，模型侧通过 `spawn` 工具暴露。
-3. **变异循环。** `factory-bundle` profile 把循环架在 `tool-ralph` 上：不可变目标即 `MUTATION_GOAL.md` 的内容，每个回合是一个实现下一里程碑（以插件形式）的全新智能体，有界交接携带里程碑状态、验证结果与下一步方案。常规进度跟踪继续使用 goal 工具（[goal-round-driver](../../../../packages/goal/goal-round-driver/README.md)），让母工厂能在不干预的情况下观察克隆的运行。
+3. **变异循环。** `factory-bundle` profile 把循环架在 `tool-ralph` 上：不可变目标即 `MUTATION_GOAL.md` 的内容，每个回合是一个实现下一里程碑（以插件形式）的全新智能体，有界交接携带里程碑状态、验证结果与下一步方案。常规进度跟踪继续使用 goal 工具（[goal-round-driver](../../../../packages/goal/goal-round-driver/README.zh.md)），让母工厂能在不干预的情况下观察克隆的运行。
 4. **验证与 git 自动驾驶。** 每个里程碑必须在克隆内部通过真实门禁才算完成：库构建、typecheck、定向测试、web profile 的 headless 启动冒烟。绿色里程碑 → 自动 `git commit`。同一里程碑连续三次失败 → `git reset --hard` 回到最近一次绿色提交，并在工作区记录失败方案，让下一回合换一条路。只有目标文件中的每项验收检查都通过时循环才停止。
 5. **插件合成。** 目标应用的每个新能力都以一等公民 Cordis 包落地，带两个面（tool 与 client）、locale 键、测试和双语 README 对，通过变异 profile 补丁挂载——克隆在其转变的每一点上都保持"一切皆插件"的应用形态，智能体的工具与 UI 一起生长。身份变更（名称、标志、标题、locale）复用 Artifork 品牌重塑已验证的 playbook。
-6. **共享实时预览。** 克隆的 web 应用作为唯一预览实例运行在其隔离端口上，由母体侧的 client 插件面嵌入（一个 slot 占用者，而非独立应用），让用户实时观看转变过程——门禁之间是 dev server 的 HMR，每个门禁判定用的是全新构建的产物，显式的运行头标明当前里程碑及其状态。克隆的智能体通过其 browser-use 会话（[browser-use-playwright-mcp](../../../../packages/experimental/browser-use-playwright-mcp/README.md)、[browser-use-stagehand-native](../../../../packages/experimental/browser-use-stagehand-native/README.md)，控制台与网络证据用 [inspector](../../../../packages/experimental/inspector/README.md)）验证并探查同一个实例，这使启动冒烟与 UI 断言门禁直接作用于用户正在观看的实例。该 frame 与克隆端口跨源、不携带母体侧凭据：克隆是不可信代码。
+6. **共享实时预览。** 克隆的 web 应用作为唯一预览实例运行在其隔离端口上，由母体侧的 client 插件面嵌入（一个 slot 占用者，而非独立应用），让用户实时观看转变过程——门禁之间是 dev server 的 HMR，每个门禁判定用的是全新构建的产物，显式的运行头标明当前里程碑及其状态。克隆的智能体通过其 browser-use 会话（[browser-use-playwright-mcp](../../../../packages/experimental/browser-use-playwright-mcp/README.zh.md)、[browser-use-stagehand-native](../../../../packages/experimental/browser-use-stagehand-native/README.zh.md)，控制台与网络证据用 [inspector](../../../../packages/experimental/inspector/README.zh.md)）验证并探查同一个实例，这使启动冒烟与 UI 断言门禁直接作用于用户正在观看的实例。该 frame 与克隆端口跨源、不携带母体侧凭据：克隆是不可信代码。
 
 7. **在母体上排练（练习、蒸馏、再 fork）。** 由于变异智能体是用 harness 本身来改造 harness 的，任何新能力的最初尝试都发生在母体上而不是克隆中：智能体尝试构建它的多种替代方式（插件形态、UI slot、工具契约），而 git 让每个失败的实验都可丢弃、母体保持纯净。每个被验证的做法都会蒸馏为一条工厂技能——工厂通过改造自己来学会改造自己，每一次转换都让下一次更好。只有当通往目标的路径已被排练过，智能体才会调用 `spawn_and_mutate`，写入一份已被这次练习打磨过的目标文件；克隆会继承这些蒸馏出的技能，因为它们就在它收到的仓库里。
 
