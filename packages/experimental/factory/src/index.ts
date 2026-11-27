@@ -9,7 +9,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { CheckpointReport } from './autopilot.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { runCheckpoint } from './autopilot.ts'
 import { GOAL_FILE_NAME, spawnClone } from './spawn.ts'
 
 export const name = 'tool-spawn'
@@ -100,6 +102,27 @@ function renderResult(value: SpawnToolResult): ContentBlock[] {
   }]
 }
 
+const CHECKPOINT_OUTPUT_PROPERTIES = {
+  outcome: { type: 'string', description: 'committed, failed, rolled-back, or complete.' },
+  milestone: { type: 'number', description: 'Milestone this checkpoint gated.' },
+  title: { type: 'string', description: 'Milestone title from the goal file.' },
+  attempts: { type: 'number', description: 'Consecutive red attempts after this checkpoint.' },
+  lastGreenCommit: { type: 'string', description: 'Last green commit after this checkpoint.' },
+  detail: { type: 'string', description: 'Decision rationale with gate evidence.' },
+} as const
+
+function renderCheckpoint(value: CheckpointReport): ContentBlock[] {
+  return [{
+    type: 'text',
+    text: [
+      `M${value.milestone} (${value.title}) — ${value.outcome}`,
+      `attempts ${value.attempts}`,
+      `last green commit ${value.lastGreenCommit}`,
+      value.detail,
+    ].join('; '),
+  }]
+}
+
 /** Register the explicit-ask spawn tool and its usage policy. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
@@ -108,6 +131,27 @@ export function apply(ctx: Context, config: Config): void {
     order: ctx.systemPrompt.getSectionOrder('TOOL_SPAWN'),
     text: 'Use the spawn_and_mutate tool ONLY when the human explicitly asks to spawn, replicate, or transform the factory itself. It clones this repository into an isolated directory with its own git history, home, and port, writes the mutation goal there, and never modifies the current checkout. The mutation loop that works inside a clone is a separate deployment capability; spawning does not start it.',
   })
+  ctx.systemPrompt.section({
+    name: 'tool:mutation-checkpoint',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_CHECKPOINT'),
+    text: 'Call the mutation_checkpoint tool after implementing the current milestone slice inside a spawned clone. It runs the milestone executable acceptance gates from MUTATION_GOAL.md itself: a green run is committed automatically and the loop advances, a red run counts one strike, and the third consecutive strike resets the clone to its last green commit and logs the failed approach. Never claim a milestone is green without a checkpoint report, and never commit mutation work outside the checkpoint.',
+  })
+  ctx.tools.register(defineTool({
+    name: 'mutation_checkpoint',
+    description: 'Run the current milestone acceptance gates inside the spawned clone, commit on green, count strikes on red, and roll back on the third consecutive failure.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: CHECKPOINT_OUTPUT_PROPERTIES,
+      },
+      render: (_args, value) => renderCheckpoint(value as unknown as CheckpointReport),
+    },
+    async execute(_args, exec) {
+      return runCheckpoint({ clonePath: resolved.repositoryPath, signal: exec.signal })
+    },
+  }))
   ctx.tools.register(defineTool({
     name: 'spawn_and_mutate',
     description: DESCRIPTION,

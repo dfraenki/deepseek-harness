@@ -62,7 +62,7 @@ export function errorMessage(error: unknown): string {
 }
 
 /** Run one git command in a repository and return its trimmed standard output. */
-async function git(repositoryPath: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
+export async function runGit(repositoryPath: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
   try {
     const { stdout } = await execFileP('git', [...args], { cwd: repositoryPath, signal, maxBuffer: 16 * 1024 * 1024 })
     return stdout.trim()
@@ -76,8 +76,8 @@ const COMMIT_IDENTITY = ['-c', 'user.name=Artifork Factory', '-c', 'user.email=f
 
 /** Commit every change in the clone with the factory identity; fails loud on a git error. */
 export async function commitAll(clonePath: string, message: string, signal?: AbortSignal): Promise<string> {
-  await git(clonePath, ['add', '-A'], signal)
-  return git(clonePath, [...COMMIT_IDENTITY, 'commit', '-m', message], signal)
+  await runGit(clonePath, ['add', '-A'], signal)
+  return runGit(clonePath, [...COMMIT_IDENTITY, 'commit', '-m', message], signal)
 }
 
 /**
@@ -85,11 +85,11 @@ export async function commitAll(clonePath: string, message: string, signal?: Abo
  * A dirty mother could clone half-written state and break the rollback guarantee.
  */
 export async function requireCleanCheckout(repositoryPath: string, signal?: AbortSignal): Promise<string> {
-  const status = await git(repositoryPath, ['status', '--porcelain'], signal)
+  const status = await runGit(repositoryPath, ['status', '--porcelain'], signal)
   if (status.length > 0) {
     throw new Error(`refusing to spawn: ${repositoryPath} is not a clean checkout (${status.split('\n').length} dirty entries)`)
   }
-  return git(repositoryPath, ['rev-parse', 'HEAD'], signal)
+  return runGit(repositoryPath, ['rev-parse', 'HEAD'], signal)
 }
 
 /**
@@ -135,15 +135,22 @@ export async function prepareGoal(
   return goalPath
 }
 
+/** Idempotently exclude one clone-relative directory from the clone's git status. */
+export async function excludePathFromGit(clonePath: string, relativePath: string, signal?: AbortSignal): Promise<void> {
+  const infoDir = join(clonePath, '.git', 'info')
+  const excludePath = join(infoDir, 'exclude')
+  const exclude = await readFile(excludePath, { encoding: 'utf8', signal }).catch(() => '')
+  const lines = exclude.split('\n')
+  if (!lines.includes(relativePath) && !lines.includes(`${relativePath}/`)) {
+    await mkdir(infoDir, { recursive: true })
+    await appendFile(excludePath, `${relativePath}/\n`)
+  }
+}
+
 /** Write the spawn record and exclude the clone's home directory from its git status. */
 export async function writeSpawnRecord(clonePath: string, record: SpawnRecord, signal?: AbortSignal): Promise<void> {
   await writeFile(join(clonePath, SPAWN_RECORD_NAME), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  const excludePath = join(clonePath, '.git', 'info', 'exclude')
-  const exclude = await readFile(excludePath, { encoding: 'utf8', signal }).catch(() => '')
-  const lines = exclude.split('\n')
-  if (!lines.includes(MUTATION_HOME_NAME) && !lines.includes(`${MUTATION_HOME_NAME}/`)) {
-    await appendFile(excludePath, `${MUTATION_HOME_NAME}/\n`)
-  }
+  await excludePathFromGit(clonePath, MUTATION_HOME_NAME, signal)
 }
 
 /**
@@ -161,8 +168,8 @@ export async function spawnClone(options: SpawnOptions): Promise<SpawnRecord> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-  await git(repositoryPath, ['clone', '--no-hardlinks', repositoryPath, targetPath], signal)
-  await git(targetPath, ['remote', 'remove', 'origin'], signal)
+  await runGit(repositoryPath, ['clone', '--no-hardlinks', repositoryPath, targetPath], signal)
+  await runGit(targetPath, ['remote', 'remove', 'origin'], signal)
   const port = await resolveFreePort()
   const homePath = join(targetPath, MUTATION_HOME_NAME)
   await mkdir(homePath)

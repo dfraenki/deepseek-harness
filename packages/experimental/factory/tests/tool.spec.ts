@@ -25,7 +25,7 @@ interface SetupResult {
 
 function setup(config: factory.Config = {}): SetupResult {
   const section = vi.fn()
-  const getSectionOrder = vi.fn(() => 2650)
+  const getSectionOrder = vi.fn((key: string) => (key === 'TOOL_MUTATION_CHECKPOINT' ? 2660 : 2650))
   const register = vi.fn()
   const ctx = {
     systemPrompt: { section, getSectionOrder },
@@ -35,10 +35,12 @@ function setup(config: factory.Config = {}): SetupResult {
   return { ctx, section, getSectionOrder, register }
 }
 
-function tool() {
-  const { register } = setup()
-  expect(register).toHaveBeenCalledTimes(1)
-  return register.mock.calls[0][0] as {
+function tool(name: 'spawn_and_mutate' | 'mutation_checkpoint' = 'spawn_and_mutate', config: factory.Config = {}) {
+  const { register } = setup(config)
+  const registered = register.mock.calls.map(call => call[0] as { name: string })
+  const found = registered.find(tool => tool.name === name)
+  if (found === undefined) throw new Error(`tool ${name} was not registered`)
+  return found as {
     name: string
     description: string
     parameters: Record<string, unknown>
@@ -124,16 +126,23 @@ describe('apply', () => {
       order: 2650,
       text: expect.stringContaining('ONLY when the human explicitly asks'),
     }))
-    expect(register).toHaveBeenCalledTimes(1)
-    expect(tool().name).toBe('spawn_and_mutate')
-    expect(tool().description).toContain('mutation goal')
+    expect(section).toHaveBeenCalledTimes(2)
+    expect(section).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'tool:mutation-checkpoint',
+      order: 2660,
+      text: expect.stringContaining('Never claim a milestone is green without a checkpoint report'),
+    }))
+    expect(register).toHaveBeenCalledTimes(2)
+    expect(tool('spawn_and_mutate').name).toBe('spawn_and_mutate')
+    expect(tool('spawn_and_mutate').description).toContain('mutation goal')
+    expect(tool('mutation_checkpoint').description).toContain('roll back on the third consecutive failure')
   })
 })
 
 describe('spawn_and_mutate execute', () => {
   it('spawns a clone from the configured mother and reports the record', async () => {
     const { register } = setup({ repositoryPath: mother })
-    const spawn = register.mock.calls[0][0] as ReturnType<typeof tool>
+    const spawn = tool('spawn_and_mutate', { repositoryPath: mother })
     const target = join(workspace, 'tool-clone')
     const result = await spawn.execute({ goalMarkdown: GOAL, targetPath: target }, exec())
     const head = await git(mother, ['rev-parse', 'HEAD'])
@@ -153,7 +162,7 @@ describe('spawn_and_mutate execute', () => {
     const reference = join(workspace, 'sketch.png')
     await writeFile(reference, 'png bytes')
     const { register } = setup({ repositoryPath: mother })
-    const spawn = register.mock.calls[0][0] as ReturnType<typeof tool>
+    const spawn = tool('spawn_and_mutate', { repositoryPath: mother })
     const target = join(workspace, 'tool-clone-refs')
     await spawn.execute({ goalMarkdown: GOAL, targetPath: target, referencePaths: [reference] }, exec())
     await expect(readFile(join(target, 'references', 'sketch.png'), 'utf8')).resolves.toBe('png bytes')
@@ -187,6 +196,25 @@ describe('spawn_and_mutate execute', () => {
       .rejects.toThrow('non-empty goalMarkdown')
     await expect(spawn.execute({ goalMarkdown: GOAL, targetPath: '  ' }, exec()))
       .rejects.toThrow('non-empty targetPath')
+  })
+
+  it('checkpoints a green milestone inside the clone', async () => {
+    const clone = join(workspace, 'tool-loop-clone')
+    await mkdir(clone, { recursive: true })
+    await git(clone, ['init'])
+    await git(clone, ['config', 'user.name', 'Fixture'])
+    await git(clone, ['config', 'user.email', 'fixture@example.test'])
+    await writeFile(join(clone, 'README.md'), 'clone\n')
+    await git(clone, ['add', '-A'])
+    await git(clone, ['commit', '-m', 'spawn baseline'])
+    await writeFile(join(clone, 'MUTATION_GOAL.md'), '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n')
+    const checkpoint = tool('mutation_checkpoint', { repositoryPath: clone })
+    const report = await checkpoint.execute({}, exec()) as Record<string, unknown>
+    expect(report.outcome).toBe('committed')
+    expect(report.milestone).toBe(1)
+    expect(await git(clone, ['log', '-1', '--format=%s'])).toBe('Mutation: M1 Engine')
+    const rendered = checkpoint.output.render({}, report) as Array<{ type: string; text: string }>
+    expect(rendered[0].text).toContain('committed')
   })
 
   it('rejects malformed reference paths', async () => {
