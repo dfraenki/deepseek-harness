@@ -3,26 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/factory/README.md
 /:
-  en: 172741a490ae0633
-  zh: 1cbeb47ac8b4ef40
+  en: 1f5bd68c93320592
+  zh: bd19b5dea22a3ec1
 /deepseek-ai-dsh-experimental-factory:
   en: ac8c4c308ebad771
   zh: b222c686c5e3f89d
 /deepseek-ai-dsh-experimental-factory/summary:
-  en: 9892881870a1278a
-  zh: 176a012bb68dddd6
+  en: 0b2743ce0da0ce84
+  zh: 2f59715418878ab2
 /deepseek-ai-dsh-experimental-factory/table-of-contents:
   en: fe1ecb09a73d1c7a
   zh: fe1ecb09a73d1c7a
 /deepseek-ai-dsh-experimental-factory/use-this-package:
-  en: cb7beb280df41d83
-  zh: a0fe54e3d27becd6
+  en: 1c6bc352cb184ecb
+  zh: a96893516a92e445
 /deepseek-ai-dsh-experimental-factory/understand-the-implementation:
-  en: ae419a59ad6d9d4b
-  zh: 930e481a4065c57e
+  en: 727535a10d9c688b
+  zh: e3623314211ba88a
 /deepseek-ai-dsh-experimental-factory/model-experience:
-  en: e205f04c1001bb46
-  zh: 6503f4a459e3b6fa
+  en: 03f08466ea6b6bfb
+  zh: d56000178b53e51b
 /deepseek-ai-dsh-experimental-factory/known-limitations-and-deferred-work:
-  en: a4d2eef1da8d3f3b
-  zh: ab7ec5ab890ad394
+  en: 5cc3e4670f2c0b2b
+  zh: 9f76682ba6572b22
