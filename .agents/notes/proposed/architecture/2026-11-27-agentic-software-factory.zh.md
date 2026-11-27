@@ -19,6 +19,8 @@ Artifork 目前是作用于外部工作区的助手：智能体编辑其他仓�
 5. **插件合成。** 目标应用的每个新能力都以一等公民 Cordis 包落地，带两个面（tool 与 client）、locale 键、测试和双语 README 对，通过变异 profile 补丁挂载——克隆在其转变的每一点上都保持"一切皆插件"的应用形态，智能体的工具与 UI 一起生长。身份变更（名称、标志、标题、locale）复用 Artifork 品牌重塑已验证的 playbook。
 6. **共享实时预览。** 克隆的 web 应用作为唯一预览实例运行在其隔离端口上，由母体侧的 client 插件面嵌入（一个 slot 占用者，而非独立应用），让用户实时观看转变过程——门禁之间是 dev server 的 HMR，每个门禁判定用的是全新构建的产物，显式的运行头标明当前里程碑及其状态。克隆的智能体通过其 browser-use 会话（[browser-use-playwright-mcp](../../../../packages/experimental/browser-use-playwright-mcp/README.md)、[browser-use-stagehand-native](../../../../packages/experimental/browser-use-stagehand-native/README.md)，控制台与网络证据用 [inspector](../../../../packages/experimental/inspector/README.md)）验证并探查同一个实例，这使启动冒烟与 UI 断言门禁直接作用于用户正在观看的实例。该 frame 与克隆端口跨源、不携带母体侧凭据：克隆是不可信代码。
 
+7. **在母体上排练（练习、蒸馏、再 fork）。** 由于变异智能体是用 harness 本身来改造 harness 的，任何新能力的最初尝试都发生在母体上而不是克隆中：智能体尝试构建它的多种替代方式（插件形态、UI slot、工具契约），而 git 让每个失败的实验都可丢弃、母体保持纯净。每个被验证的做法都会蒸馏为一条工厂技能——工厂通过改造自己来学会改造自己，每一次转换都让下一次更好。只有当通往目标的路径已被排练过，智能体才会调用 `spawn_and_mutate`，写入一份已被这次练习打磨过的目标文件；克隆会继承这些蒸馏出的技能，因为它们就在它收到的仓库里。
+
 工厂自身的代码遵循与其他一切相同的规则：spawn 服务、变异 profile、验证 harness 与预览面都是有测试、受覆盖率门禁约束、以双语 README 对记录的插件。
 
 ## Alternatives considered
@@ -35,6 +37,7 @@ Artifork 目前是作用于外部工作区的助手：智能体编辑其他仓�
 - 克隆的最终树仍通过仓库自身的门禁（新包覆盖率、pairing、lint），因为循环复用了这些门禁作为其验证。
 - 任何克隆的变异运行前后，母工厂的树保持字节级一致。
 - 运行期间，用户的预览与智能体的验证指向同一实例：被标绿的里程碑有对应的门禁运行记录，其 UI 断言是在用户可打开的那个实例上执行的，且运行头标明该里程碑。
+- 新能力的排练轮次在母体上运行，结束时母工厂的树保持字节级一致（失败实验由 git 丢弃），并在对应的 `spawn_and_mutate` 调用之前沉淀出至少一条蒸馏技能。
 - 所有新包默认关闭，并以记录了一致性条目的双语 README 对文档化。
 
 ## Risks
