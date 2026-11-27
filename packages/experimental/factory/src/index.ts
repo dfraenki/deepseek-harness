@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-experimental-factory
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -17,7 +19,7 @@ import { DEFAULT_MAX_ROUNDS, runRounds } from './driver.ts'
 import { parseGoal } from './goal.ts'
 import type { RehearsalAttemptReport, RehearsalCoverageReport, RehearsalDistillReport } from './rehearsal.ts'
 import { distillRehearsal, runRehearsalAttempt, rehearsalCoverage, uncoveredMilestones } from './rehearsal.ts'
-import { GOAL_FILE_NAME, spawnClone } from './spawn.ts'
+import { GOAL_FILE_NAME, SPAWN_RECORD_NAME, spawnClone } from './spawn.ts'
 
 export {
   MUTATION_HOME_NAME,
@@ -324,63 +326,15 @@ function renderCoverage(value: RehearsalCoverageReport): ContentBlock[] {
 /** Register the explicit-ask spawn tool and its usage policy. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
+  if (existsSync(join(resolved.repositoryPath, SPAWN_RECORD_NAME))) {
+    registerCloneTools(ctx, resolved)
+    return
+  }
   ctx.systemPrompt.section({
     name: 'tool:spawn',
     order: ctx.systemPrompt.getSectionOrder('TOOL_SPAWN'),
     text: 'Use the spawn_and_mutate tool ONLY when the human explicitly asks to spawn, replicate, or transform the factory itself. It clones this repository into an isolated directory with its own git history, home, and port, writes the mutation goal there, and never modifies the current checkout. The mutation loop that works inside a clone is a separate deployment capability; spawning does not start it.',
   })
-  ctx.systemPrompt.section({
-    name: 'tool:mutation-checkpoint',
-    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_CHECKPOINT'),
-    text: 'Call the mutation_checkpoint tool after implementing the current milestone slice inside a spawned clone. It runs the milestone executable acceptance gates from MUTATION_GOAL.md itself: a green run is committed automatically and the loop advances, a red run counts one strike, and the third consecutive strike resets the clone to its last green commit and logs the failed approach. Never claim a milestone is green without a checkpoint report, and never commit mutation work outside the checkpoint.',
-  })
-  ctx.tools.register(defineTool({
-    name: 'mutation_checkpoint',
-    description: 'Run the current milestone acceptance gates inside the spawned clone, commit on green, count strikes on red, and roll back on the third consecutive failure.',
-    parameters: {},
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: CHECKPOINT_OUTPUT_PROPERTIES,
-      },
-      render: (_args, value) => renderCheckpoint(value as unknown as CheckpointReport),
-    },
-    async execute(_args, exec) {
-      return runCheckpoint({ clonePath: resolved.repositoryPath, signal: exec.signal })
-    },
-  }))
-  ctx.systemPrompt.section({
-    name: 'tool:mutation-run',
-    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_RUN'),
-    text: 'Call the mutation_run tool to drive checkpoint rounds back to back until the mutation goal reports complete. It stops on its own when a coaching pause flag appears or the round budget runs out, and every round is still gated by mutation_checkpoint. Never use it outside a spawned clone, and never bypass the checkpoint by committing mutation work directly.',
-  })
-  ctx.tools.register(defineTool({
-    name: 'mutation_run',
-    description: 'Drive mutation checkpoint rounds back to back until the goal reports complete, a coach pause flag appears, or the round budget runs out.',
-    parameters: {
-      maxRounds: {
-        type: 'number',
-        description: `Optional round budget; defaults to ${DEFAULT_MAX_ROUNDS}.`,
-      },
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: ROUNDS_OUTPUT_PROPERTIES,
-      },
-      render: (_args, value) => renderRounds(value as unknown as RoundsReport),
-    },
-    async execute(args, exec) {
-      const parsed = parseRunArgs(args)
-      return runRounds({
-        clonePath: resolved.repositoryPath,
-        ...parsed.maxRounds === undefined ? {} : { maxRounds: parsed.maxRounds },
-        signal: exec.signal,
-      })
-    },
-  }))
   ctx.systemPrompt.section({
     name: 'rehearsal:policy',
     order: ctx.systemPrompt.getSectionOrder('TOOL_FACTORY_REHEARSAL'),
@@ -557,6 +511,62 @@ export function apply(ctx: Context, config: Config): void {
         goalSha256: record.goalSha256,
         rehearsedSkills: [...rehearsedSkills],
       } satisfies SpawnToolResult
+    },
+  }))
+}
+
+/** Register the clone-side loop tools: a clone verifies and advances its own goal. */
+function registerCloneTools(ctx: Context, resolved: ResolvedConfig): void {
+  ctx.systemPrompt.section({
+    name: 'tool:mutation-checkpoint',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_CHECKPOINT'),
+    text: 'Call the mutation_checkpoint tool after implementing the current milestone slice inside a spawned clone. It runs the milestone executable acceptance gates from MUTATION_GOAL.md itself: a green run is committed automatically and the loop advances, a red run counts one strike, and the third consecutive strike resets the clone to its last green commit and logs the failed approach. Never claim a milestone is green without a checkpoint report, and never commit mutation work outside the checkpoint.',
+  })
+  ctx.tools.register(defineTool({
+    name: 'mutation_checkpoint',
+    description: 'Run the current milestone acceptance gates inside the spawned clone, commit on green, count strikes on red, and roll back on the third consecutive failure.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: CHECKPOINT_OUTPUT_PROPERTIES,
+      },
+      render: (_args, value) => renderCheckpoint(value as unknown as CheckpointReport),
+    },
+    async execute(_args, exec) {
+      return runCheckpoint({ clonePath: resolved.repositoryPath, signal: exec.signal })
+    },
+  }))
+  ctx.systemPrompt.section({
+    name: 'tool:mutation-run',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_MUTATION_RUN'),
+    text: 'Call the mutation_run tool to drive checkpoint rounds back to back until the mutation goal reports complete. It stops on its own when a coaching pause flag appears or the round budget runs out, and every round is still gated by mutation_checkpoint. Never use it outside a spawned clone, and never bypass the checkpoint by committing mutation work directly.',
+  })
+  ctx.tools.register(defineTool({
+    name: 'mutation_run',
+    description: 'Drive mutation checkpoint rounds back to back until the goal reports complete, a coach pause flag appears, or the round budget runs out.',
+    parameters: {
+      maxRounds: {
+        type: 'number',
+        description: `Optional round budget; defaults to ${DEFAULT_MAX_ROUNDS}.`,
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: ROUNDS_OUTPUT_PROPERTIES,
+      },
+      render: (_args, value) => renderRounds(value as unknown as RoundsReport),
+    },
+    async execute(args, exec) {
+      const parsed = parseRunArgs(args)
+      return runRounds({
+        clonePath: resolved.repositoryPath,
+        ...parsed.maxRounds === undefined ? {} : { maxRounds: parsed.maxRounds },
+        signal: exec.signal,
+      })
     },
   }))
 }

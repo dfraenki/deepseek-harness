@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -54,6 +55,10 @@ function tool(
 
 function exec(): { signal: AbortSignal } {
   return { signal: new AbortController().signal } as never
+}
+
+async function writeSpawnRecordForGoal(clone: string, goal: string): Promise<void> {
+  await writeFile(join(clone, SPAWN_RECORD_NAME), `${JSON.stringify({ version: 1, goalSha256: createHash('sha256').update(goal).digest('hex') })}\n`)
 }
 
 let workspace: string
@@ -129,8 +134,15 @@ describe('parseArgs', () => {
   })
 })
 
+async function cloneFixture(name: string): Promise<string> {
+  const clone = join(workspace, name)
+  await mkdir(clone, { recursive: true })
+  await writeFile(join(clone, SPAWN_RECORD_NAME), '{}\n')
+  return clone
+}
+
 describe('apply', () => {
-  it('registers the explicit-ask policy sections and the three tools', () => {
+  it('registers the spawn and rehearsal surface in a mother checkout', () => {
     const { section, getSectionOrder, register } = setup({ repositoryPath: mother })
     expect(getSectionOrder).toHaveBeenCalledWith('TOOL_SPAWN')
     expect(getSectionOrder).toHaveBeenCalledWith('TOOL_FACTORY_REHEARSAL')
@@ -139,12 +151,23 @@ describe('apply', () => {
       order: 2650,
       text: expect.stringContaining('ONLY when the human explicitly asks'),
     }))
-    expect(section).toHaveBeenCalledTimes(4)
+    expect(section).toHaveBeenCalledTimes(2)
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
       name: 'rehearsal:policy',
       order: 2655,
       text: expect.stringContaining('Rehearse before you spawn'),
     }))
+    expect(register).toHaveBeenCalledTimes(4)
+    expect(tool('spawn_and_mutate').name).toBe('spawn_and_mutate')
+    expect(tool('spawn_and_mutate').description).toContain('mutation goal')
+    expect(tool('rehearsal_attempt').description).toContain('per-topic budget and strike rule')
+    expect(tool('rehearsal_distill').description).toContain('ships into every spawned clone')
+    expect(tool('rehearsal_report').description).toContain('stuck topics')
+  })
+
+  it('registers the loop tools and skips the spawn surface in a clone', async () => {
+    const clone = await cloneFixture('apply-clone')
+    const { section, register } = setup({ repositoryPath: clone })
     expect(section).toHaveBeenCalledWith(expect.objectContaining({
       name: 'tool:mutation-checkpoint',
       order: 2660,
@@ -155,14 +178,13 @@ describe('apply', () => {
       order: 2665,
       text: expect.stringContaining('Never use it outside a spawned clone'),
     }))
-    expect(register).toHaveBeenCalledTimes(6)
-    expect(tool('spawn_and_mutate').name).toBe('spawn_and_mutate')
-    expect(tool('spawn_and_mutate').description).toContain('mutation goal')
-    expect(tool('mutation_checkpoint').description).toContain('roll back on the third consecutive failure')
-    expect(tool('mutation_run').description).toContain('until the goal reports complete')
-    expect(tool('rehearsal_attempt').description).toContain('per-topic budget and strike rule')
-    expect(tool('rehearsal_distill').description).toContain('ships into every spawned clone')
-    expect(tool('rehearsal_report').description).toContain('stuck topics')
+    expect(section).toHaveBeenCalledTimes(2)
+    expect(register).toHaveBeenCalledTimes(2)
+    expect(tool('mutation_checkpoint', { repositoryPath: clone }).description).toContain('roll back on the third consecutive failure')
+    expect(tool('mutation_run', { repositoryPath: clone }).description).toContain('until the goal reports complete')
+    const names = register.mock.calls.map(call => (call[0] as { name: string }).name)
+    expect(names).not.toContain('spawn_and_mutate')
+    expect(names).not.toContain('rehearsal_attempt')
   })
 })
 
@@ -255,13 +277,16 @@ describe('spawn_and_mutate execute', () => {
   it('checkpoints a green milestone inside the clone', async () => {
     const clone = join(workspace, 'tool-loop-clone')
     await mkdir(clone, { recursive: true })
+    await writeFile(join(clone, SPAWN_RECORD_NAME), '{}\n')
     await git(clone, ['init'])
     await git(clone, ['config', 'user.name', 'Fixture'])
     await git(clone, ['config', 'user.email', 'fixture@example.test'])
     await writeFile(join(clone, 'README.md'), 'clone\n')
     await git(clone, ['add', '-A'])
     await git(clone, ['commit', '-m', 'spawn baseline'])
-    await writeFile(join(clone, 'MUTATION_GOAL.md'), '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n')
+    const goal = '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n'
+    await writeSpawnRecordForGoal(clone, goal)
+    await writeFile(join(clone, 'MUTATION_GOAL.md'), goal)
     const checkpoint = tool('mutation_checkpoint', { repositoryPath: clone })
     const report = await checkpoint.execute({}, exec()) as Record<string, unknown>
     expect(report.outcome).toBe('committed')
@@ -274,16 +299,16 @@ describe('spawn_and_mutate execute', () => {
   it('drives rounds to completion inside the clone', async () => {
     const clone = join(workspace, 'tool-run-clone')
     await mkdir(clone, { recursive: true })
+    await writeFile(join(clone, SPAWN_RECORD_NAME), '{}\n')
     await git(clone, ['init'])
     await git(clone, ['config', 'user.name', 'Fixture'])
     await git(clone, ['config', 'user.email', 'fixture@example.test'])
     await writeFile(join(clone, 'README.md'), 'clone\n')
     await git(clone, ['add', '-A'])
     await git(clone, ['commit', '-m', 'spawn baseline'])
-    await writeFile(
-      join(clone, 'MUTATION_GOAL.md'),
-      '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n',
-    )
+    const goal = '## Milestones\n\n- M1: Engine\n\n- M2: Interface\n\n## Acceptance criteria\n\n- M1: `echo core > core.ts` builds\n\n- M2: `echo ui > ui.ts` builds\n'
+    await writeSpawnRecordForGoal(clone, goal)
+    await writeFile(join(clone, 'MUTATION_GOAL.md'), goal)
     const run = tool('mutation_run', { repositoryPath: clone })
     const report = await run.execute({ maxRounds: 8 }, exec()) as Record<string, unknown>
     expect(report.stoppedBecause).toBe('complete')
@@ -296,6 +321,7 @@ describe('spawn_and_mutate execute', () => {
   it('pauses before the first round when the clone carries a coach pause flag', async () => {
     const clone = join(workspace, 'tool-run-paused')
     await mkdir(join(clone, '.coaches'), { recursive: true })
+    await writeFile(join(clone, SPAWN_RECORD_NAME), '{}\n')
     await writeFile(join(clone, '.coaches', 'PAUSE'), 'paused\n')
     const run = tool('mutation_run', { repositoryPath: clone })
     const report = await run.execute({}, exec()) as Record<string, unknown>
@@ -303,15 +329,17 @@ describe('spawn_and_mutate execute', () => {
     expect(report.rounds).toBe(0)
   })
 
-  it('renders a rounds run that paused before the first checkpoint', () => {
-    const run = tool('mutation_run')
+  it('renders a rounds run that paused before the first checkpoint', async () => {
+    const clone = await cloneFixture('tool-render-clone')
+    const run = tool('mutation_run', { repositoryPath: clone })
     const blocks = run.output.render({}, { rounds: 0, stoppedBecause: 'paused' }) as Array<{ type: string; text: string }>
     expect(blocks).toHaveLength(1)
     expect(blocks[0].text).toContain('no checkpoint ran')
   })
 
   it('rejects malformed mutation_run arguments', async () => {
-    const run = tool('mutation_run')
+    const clone = await cloneFixture('tool-parse-clone')
+    const run = tool('mutation_run', { repositoryPath: clone })
     await expect(run.execute(null, exec())).rejects.toThrow('must be an object')
     await expect(run.execute({ maxRounds: 0 }, exec())).rejects.toThrow('positive integer')
   })

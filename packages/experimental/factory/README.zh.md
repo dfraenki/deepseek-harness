@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## Summary
 
-`spawn_and_mutate` 将正在运行的检出复制到一个全新的隔离目录，并向该克隆交付一份变更目标。母检出是只读的：它必须是一个干净的 git 工作树，且其中任何内容都不会被写入。克隆拥有自己的 git 历史（`origin` 远端会被移除）、自己的 `.mutation-home` 状态目录（已从 git 中排除）以及一个保留的本地端口，因此被派生的克隆永远不会与其母体冲突。`mutation_checkpoint` 是克隆侧的验证自动驾驶仪：它对克隆运行当前里程碑的可执行验收标准，绿灯时提交并推进到下一里程碑，红灯时记录失败次数，并在连续第三次失败时将克隆回滚到最后一个绿灯提交。`mutation_run` 是轮次驱动器：它连续调用 checkpoint，直到目标报告 complete、出现教练暂停旗（`.coaches/PAUSE`）或轮次预算耗尽。排练层（`rehearsal_attempt`、`rehearsal_distill`、`rehearsal_report`）让模型在派生之前先在某个能力上尝试候选方法，把每次尝试及其真实的门证据保存在 `.rehearsal-home/` 下，将绿灯尝试蒸馏为技能候选，并且——通过 `requireRehearsalCoverage`——在目标的每个里程碑都有绿灯排练之前拒绝派生。仅当人类明确要求派生、复制或改造工厂本身时才会注册这些工具。
+`spawn_and_mutate` 将正在运行的检出复制到一个全新的隔离目录，并向该克隆交付一份变更目标。母检出是只读的：它必须是一个干净的 git 工作树，且其中任何内容都不会被写入。克隆拥有自己的 git 历史（`origin` 远端会被移除）、自己的 `.mutation-home` 状态目录（已从 git 中排除）以及一个保留的本地端口，因此被派生的克隆永远不会与其母体冲突。`mutation_checkpoint` 是克隆侧的验证自动驾驶仪：它对克隆运行当前里程碑的可执行验收标准，绿灯时提交并推进到下一里程碑，红灯时记录失败次数，并在连续第三次失败时将克隆回滚到最后一个绿灯提交。`mutation_run` 是轮次驱动器：它连续调用 checkpoint，直到目标报告 complete、出现教练暂停旗（`.coaches/PAUSE`）或轮次预算耗尽。排练层（`rehearsal_attempt`、`rehearsal_distill`、`rehearsal_report`）让模型在派生之前先在某个能力上尝试候选方法，把每次尝试及其真实的门证据保存在 `.rehearsal-home/` 下，将绿灯尝试蒸馏为技能候选，并且——通过 `requireRehearsalCoverage`——在目标的每个里程碑都有绿灯排练之前拒绝派生。注册遵循检出的角色：母检出（无派生记录）获得派生与排练面，而克隆（配置路径下存在 `MUTATION_SPAWN.json`）只获得 checkpoint 与轮次循环，无法派生克隆。仅当人类明确要求派生、复制或改造工厂本身时才会注册这些工具。
 
 ## Table of Contents
 
