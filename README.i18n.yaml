@@ -2,33 +2,33 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write README.md
-/deepseek-harness:
-  en: f68c4f080ce55ff2
-  zh: 88a76d7f7f0b260e
-/deepseek-harness/developer-preview:
-  en: 4ef4d8a71ac143f0
-  zh: 1bfc3149ba8e5543
-/deepseek-harness/run:
+/artifork:
+  en: ffa1bdab15b3b293
+  zh: 015915f0fb128a91
+/artifork/developer-preview:
+  en: ad2c93abf7d594cb
+  zh: 107e249634cb66ca
+/artifork/run:
   en: 4e0248e4c6474fc6
   zh: eb2fb8d78c7d6bc0
-/deepseek-harness/run/run-from-npm:
+/artifork/run/run-from-npm:
   en: e22005cd42e6cbad
   zh: 0f536f4208df1d60
-/deepseek-harness/run/run-from-source:
+/artifork/run/run-from-source:
   en: 819e3f7c144d0d64
   zh: de815f040975dba7
-/deepseek-harness/community-and-support:
-  en: 20acf6451fdc869b
-  zh: d06246dd019ecef7
-/deepseek-harness/contributing:
+/artifork/community-and-support:
+  en: e2876fab2a904f4c
+  zh: 39cc9a95a9b73cb2
+/artifork/contributing:
   en: cabc2d3e9f8898bd
   zh: 83b6d238bae29ce3
-/deepseek-harness/development:
+/artifork/development:
   en: 803ca2b11b497bed
   zh: 8b4071eb0e7783ef
-/deepseek-harness/citation:
+/artifork/citation:
   en: 6704e9e5a8d49a91
   zh: 85c9cdd8d56f8e9d
-/deepseek-harness/license:
+/artifork/license:
   en: 926995344fc1c72b
   zh: c92fab5abf85932f
