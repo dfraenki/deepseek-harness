@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-11-27-agentic-software-factory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-11-27-agentic-software-factory.md
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis:
+  en: d25c840faeeccda6
+  zh: 5d6c3e1c8afd86fe
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis/problem:
+  en: a709e58fae9d7e6f
+  zh: f198a443ab9d26e4
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis/proposal:
+  en: b6e4c617f2252d96
+  zh: c1371006e7cd94e9
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis/alternatives-considered:
+  en: 7b16a0ff27471066
+  zh: de361868fcdbec79
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis/acceptance-criteria:
+  en: b98dfa07710c69ba
+  zh: 4d0afcccf636a554
+/agent-note-agentic-software-factory-self-replication-mutation-loop-and-plugin-synthesis/risks:
+  en: e86176e3c2c6b0bd
+  zh: c85d306626d9c910
