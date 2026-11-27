@@ -22,17 +22,37 @@ import { distillRehearsal, runRehearsalAttempt, rehearsalCoverage, uncoveredMile
 import { GOAL_FILE_NAME, SPAWN_RECORD_NAME, spawnClone } from './spawn.ts'
 
 export {
+  GOAL_FILE_NAME,
   MUTATION_HOME_NAME,
   REHEARSAL_HOME_NAME,
   REHEARSAL_SKILLS_DIR_NAME,
   SPAWN_RECORD_NAME,
+  commitAll,
   copyRehearsalSkills,
   readSpawnRecord,
+  requireCleanCheckout,
   resolveFreePort,
+  runGit,
   writeSpawnRecord,
   type SpawnOutcome,
   type SpawnRecord,
 } from './spawn.ts'
+
+export {
+  LOOP_STATE_NAME,
+  loadLoopState,
+  type LoopState,
+} from './autopilot.ts'
+
+export {
+  PAUSE_FLAG_NAME,
+} from './driver.ts'
+
+export {
+  parseGoal,
+  type GoalMilestone,
+  type ParsedGoal,
+} from './goal.ts'
 
 export {
   ATTEMPTS_DIR_NAME,
