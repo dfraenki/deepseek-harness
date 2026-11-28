@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Artifork software factory",
+    "description": "Spawn isolated clones of this harness that mutate themselves into complete applications: rehearsal, the autonomous mutation loop with git checkpoints, coaching observers, the live preview, and the catalog with publish decisions."
+  }
+}

@@ -348,6 +348,9 @@ importers:
       '@deepseek-ai/dsh-experimental-cot-translation-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/cot-translation-bundle
+      '@deepseek-ai/dsh-experimental-factory-bundle':
+        specifier: workspace:*
+        version: link:../../packages/experimental/factory-bundle
       '@deepseek-ai/dsh-experimental-forge-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/forge-bundle
@@ -1010,6 +1013,9 @@ importers:
       '@deepseek-ai/dsh-experimental-cot-translation-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/cot-translation-bundle
+      '@deepseek-ai/dsh-experimental-factory-bundle':
+        specifier: workspace:*
+        version: link:../../packages/experimental/factory-bundle
       '@deepseek-ai/dsh-experimental-forge-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/forge-bundle
@@ -9992,6 +9998,101 @@ importers:
         specifier: ^0.35.3
         version: 0.35.5(@types/node@22.20.1)
 
+  packages/experimental/factory:
+    dependencies:
+      '@deepseek-ai/dsh-official-bundles':
+        specifier: workspace:*
+        version: link:../../util/official-bundles
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
+  packages/experimental/factory-bundle:
+    dependencies:
+      '@deepseek-ai/dsh-experimental-factory':
+        specifier: workspace:*
+        version: link:../factory
+      '@deepseek-ai/dsh-experimental-factory-catalog':
+        specifier: workspace:*
+        version: link:../factory-catalog
+      '@deepseek-ai/dsh-experimental-factory-observers':
+        specifier: workspace:*
+        version: link:../factory-observers
+      '@deepseek-ai/dsh-experimental-factory-preview':
+        specifier: workspace:*
+        version: link:../factory-preview
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
+  packages/experimental/factory-catalog:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-experimental-factory':
+        specifier: workspace:*
+        version: link:../factory
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:*
+        version: link:../../host/webserver
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
+  packages/experimental/factory-observers:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
+  packages/experimental/factory-preview:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-experimental-factory':
+        specifier: workspace:*
+        version: link:../factory
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
   packages/experimental/forge:
     dependencies:
       '@deepseek-ai/dsh-brand':
@@ -14175,15 +14276,15 @@ importers:
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:*
         version: link:../../subagent/subagent
-      '@deepseek-ai/dsh-tool-testkit':
-        specifier: workspace:*
-        version: link:../../test-support/tool-testkit
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
       '@deepseek-ai/dsh-tool-executor-ptc':
         specifier: workspace:*
         version: link:../../core/tool-executor-ptc
+      '@deepseek-ai/dsh-tool-testkit':
+        specifier: workspace:*
+        version: link:../../test-support/tool-testkit
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools

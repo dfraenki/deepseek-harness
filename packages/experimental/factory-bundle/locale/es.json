@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fábrica de software Artifork",
+    "description": "Genera clones aislados de este harness que se mutan a sí mismos hasta convertirse en aplicaciones completas: ensayo, bucle de mutación autónomo con checkpoints de git, observadores de coach, vista previa en vivo y catálogo con decisiones de publicación."
+  }
+}

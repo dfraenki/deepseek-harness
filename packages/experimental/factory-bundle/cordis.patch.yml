@@ -1,0 +1,16 @@
+# The Artifork factory bundle patch: the self-replicating software factory.
+# Inserted after every other bundle layer as ordinary Host rows, so the
+# factory tools join the global tool layer every preset receives. The same
+# rows serve both sides of the factory: role gating inside each package reads
+# the checkout's spawn record and mounts the mother's spawn/rehearsal/catalog
+# tools or the clone's mutation loop, preview, and coaching tools.
+
+- insert:
+    - id: factory
+      name: '@deepseek-ai/dsh-experimental-factory'
+    - id: factory-preview
+      name: '@deepseek-ai/dsh-experimental-factory-preview'
+    - id: factory-observers
+      name: '@deepseek-ai/dsh-experimental-factory-observers'
+    - id: factory-catalog
+      name: '@deepseek-ai/dsh-experimental-factory-catalog'
