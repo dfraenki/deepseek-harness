@@ -11,6 +11,7 @@ import { access, appendFile, constants, cp, mkdir, readFile, readdir, writeFile 
 import { createServer } from 'node:net'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 
 const execFileP = promisify(execFile)
 
@@ -22,6 +23,12 @@ export const SPAWN_RECORD_NAME = 'MUTATION_SPAWN.json'
 
 /** Clone-local home directory for state, sessions, and credentials. */
 export const MUTATION_HOME_NAME = '.mutation-home'
+
+/** The profile the clone's launcher boots; the preview launches `dsh web`. */
+export const CLONE_PROFILE_NAME = 'web'
+
+/** The optional bundle the clone's profile selects so its first boot carries the factory. */
+export const FACTORY_BUNDLE_NAME = '@deepseek-ai/dsh-experimental-factory-bundle'
 
 /** Checkout-local home directory for rehearsal records and distilled skill candidates. */
 export const REHEARSAL_HOME_NAME = '.rehearsal-home'
@@ -179,6 +186,32 @@ export async function writeSpawnRecord(clonePath: string, record: SpawnRecord, s
 }
 
 /**
+ * Pre-initialize the clone's web profile with the factory bundle selected:
+ * the manifest lists the shipped web template plus the factory bundle, beside
+ * an empty user patch layer and the profile pnpm settings. `loadProfile`
+ * initializes a missing profile from the shipped template only when its
+ * manifest is absent, so the clone's first boot composes the factory without
+ * any interactive switch, and the Plugins page still shows the selection.
+ */
+export async function prepareCloneProfile(clonePath: string, profileName: string = CLONE_PROFILE_NAME, signal?: AbortSignal): Promise<void> {
+  const template = PROFILE_TEMPLATES[profileName]
+  if (template === undefined) {
+    throw new Error(`profile ${JSON.stringify(profileName)} has no shipped template; the clone profile cannot compose the factory`)
+  }
+  const dir = join(clonePath, MUTATION_HOME_NAME, 'profiles', profileName)
+  await mkdir(dir, { recursive: true })
+  const manifest = {
+    name: `dsh-profile-${profileName}`,
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: [...template.bundles, FACTORY_BUNDLE_NAME] } },
+  }
+  await writeFile(join(dir, 'package.json'), `${JSON.stringify(manifest, undefined, 2)}\n`, { encoding: 'utf8', signal })
+  await writeFile(join(dir, 'cordis.patch.yml'), '[]\n', { encoding: 'utf8', signal })
+  await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n', { encoding: 'utf8', signal })
+}
+
+/**
  * Copy distilled rehearsal skill candidates into the clone's skills directory,
  * one directory per frontmatter name; unreadable or nameless files are skipped.
  */
@@ -234,6 +267,7 @@ export async function spawnClone(options: SpawnOptions): Promise<SpawnOutcome> {
   const port = await resolveFreePort()
   const homePath = join(targetPath, MUTATION_HOME_NAME)
   await mkdir(homePath)
+  await prepareCloneProfile(targetPath, CLONE_PROFILE_NAME, signal)
   const goalPath = await prepareGoal(targetPath, goalMarkdown, referencePaths)
   const goalSha256 = await sha256File(goalPath, signal)
   const record: SpawnRecord = {

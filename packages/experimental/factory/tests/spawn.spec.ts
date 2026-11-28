@@ -6,6 +6,8 @@ import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   BASELINE_COMMIT_MESSAGE,
+  CLONE_PROFILE_NAME,
+  FACTORY_BUNDLE_NAME,
   GOAL_FILE_NAME,
   MUTATION_HOME_NAME,
   REHEARSAL_HOME_NAME,
@@ -14,6 +16,7 @@ import {
   copyRehearsalSkills,
   errorMessage,
   excludePathFromGit,
+  prepareCloneProfile,
   prepareGoal,
   requireCleanCheckout,
   resolveFreePort,
@@ -154,6 +157,31 @@ describe('commitAll', () => {
   })
 })
 
+describe('prepareCloneProfile', () => {
+  it('pre-initializes the clone profile with the shipped web template plus the factory bundle', async () => {
+    const home = join(workspace, 'profile-home')
+    await prepareCloneProfile(home)
+    const manifest = JSON.parse(
+      await readFile(join(home, MUTATION_HOME_NAME, 'profiles', CLONE_PROFILE_NAME, 'package.json'), 'utf8') as string,
+    )
+    expect(manifest.name).toBe(`dsh-profile-${CLONE_PROFILE_NAME}`)
+    expect(manifest.private).toBe(true)
+    expect(manifest.dependencies).toEqual({})
+    expect(manifest.dsh.profile.bundles).toEqual([
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-web-app',
+      FACTORY_BUNDLE_NAME,
+    ])
+    await expect(readFile(join(home, MUTATION_HOME_NAME, 'profiles', CLONE_PROFILE_NAME, 'cordis.patch.yml'), 'utf8')).resolves.toBe('[]\n')
+    await expect(readFile(join(home, MUTATION_HOME_NAME, 'profiles', CLONE_PROFILE_NAME, 'pnpm-workspace.yaml'), 'utf8')).resolves.toContain('nodeLinker: hoisted')
+  })
+
+  it('refuses a profile name without a shipped template', async () => {
+    const home = join(workspace, 'profile-home-refused')
+    await expect(prepareCloneProfile(home, 'nonexistent')).rejects.toThrow('has no shipped template')
+  })
+})
+
 describe('spawnClone', () => {
   it('clones, isolates, writes goal and record, and commits the baseline without touching the mother', async () => {
     const reference = join(workspace, 'brief.md')
@@ -180,6 +208,10 @@ describe('spawnClone', () => {
     await expect(readFile(join(target, 'references', 'brief.md'), 'utf8')).resolves.toBe('reference brief')
     expect(await git(target, ['remote'])).toBe('')
     expect(await git(target, ['log', '-1', '--format=%s'])).toBe(BASELINE_COMMIT_MESSAGE)
+    const profile = JSON.parse(
+      await readFile(join(target, MUTATION_HOME_NAME, 'profiles', CLONE_PROFILE_NAME, 'package.json'), 'utf8') as string,
+    )
+    expect(profile.dsh.profile.bundles).toContain(FACTORY_BUNDLE_NAME)
     await expect(git(target, ['status', '--porcelain'])).resolves.toBe('')
     expect(await git(mother, ['rev-parse', 'HEAD'])).toBe(motherHead)
     await expect(git(mother, ['status', '--porcelain'])).resolves.toBe('')

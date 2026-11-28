@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Artifork-Softwarefabrik",
+    "description": "Erzeugt isolierte Klone dieses Harness, die sich selbst zu vollständigen Anwendungen mutieren: Generalprobe, autonome Mutationsschleife mit Git-Checkpoints, Coach-Beobachter, Live-Vorschau und Katalog mit Publish-Entscheidungen."
+  }
+}
